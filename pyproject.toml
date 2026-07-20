@@ -1,7 +1,7 @@
 [project]
 name = "candidate-pockets-pdbbind"
 version = "0.1.0"
-description = "Add your description here"
+description = "Reproducible PDBbind candidate-pocket library builder for BioSensIA-DC/DrugCLIP"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
@@ -21,12 +21,19 @@ dependencies = [
   "vegafusion>=2.0.3",
   "vl-convert-python>=1.9.0.post1",
   "pyarrow>=24.0.0",
+  "gemmi>=0.7,<0.8",
+  "httpx>=0.28,<0.29",
+  "tenacity>=9,<10",
+  "scipy>=1.11,<2",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
 ]
+
+[project.scripts]
+biosensia-pocket-library = "biosensia_pocket_library.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

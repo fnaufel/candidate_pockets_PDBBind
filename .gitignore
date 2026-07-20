@@ -11,7 +11,12 @@ wheels/
 
 # Raw data
 data/raw
+data/cache
+data/processed
 
 # Link to DrugCLIP
 data/DrugCLIP
+BioSensIA-DC
 
+/.quarto/
+**/*.quarto_ipynb

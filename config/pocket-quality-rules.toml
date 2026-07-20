@@ -1,0 +1,146 @@
+schema_version = "1.0.0"
+
+[rules.DETERMINISTIC_CROP_APPLIED]
+dimension = "geometry"
+severity = "warning"
+tier = "B"
+
+[rules.LIGAND_MOL2_FALLBACK]
+dimension = "geometry"
+severity = "warning"
+tier = "B"
+
+[rules.SDF_MOL2_DISAGREEMENT]
+dimension = "geometry"
+severity = "warning"
+tier = "B"
+
+[rules.MODIFIED_RESIDUE_INCLUDED]
+dimension = "geometry"
+severity = "warning"
+tier = "B"
+
+[rules.EXPLICIT_ELEMENT_MAPPING_APPLIED]
+dimension = "geometry"
+severity = "warning"
+tier = "B"
+
+[rules.PROBABLE_COVALENT_CONTACT]
+dimension = "geometry"
+severity = "warning"
+tier = "C"
+
+[rules.EXCLUDED_COMPONENT_BRIDGES_CONTACT]
+dimension = "geometry"
+severity = "warning"
+tier = "C"
+
+[rules.VERY_SMALL_POCKET]
+dimension = "geometry"
+severity = "warning"
+tier = "C"
+
+[rules.UNSUPPORTED_ATOM_EXCLUDED]
+dimension = "geometry"
+severity = "warning"
+tier = "C"
+
+[rules.SPATIALLY_SEPARATED_LIGAND_COMPONENTS]
+dimension = "geometry"
+severity = "warning"
+tier = "C"
+
+[rules.LOCAL_MISSING_ATOM_RECORD]
+dimension = "geometry"
+severity = "warning"
+tier = "C"
+
+[rules.LIGAND_CHEMISTRY_UNUSUAL]
+dimension = "geometry"
+severity = "warning"
+tier = "C"
+
+[rules.MISSING_INDEX_FILE]
+dimension = "source_integrity"
+severity = "fatal"
+tier = "none"
+
+[rules.MISSING_COMPLEX_DIRECTORY]
+dimension = "source_integrity"
+severity = "fatal"
+tier = "none"
+
+[rules.DUPLICATE_COMPLEX_DIRECTORY]
+dimension = "source_integrity"
+severity = "fatal"
+tier = "none"
+
+[rules.SOURCE_FILENAME_CASE_MISMATCH]
+dimension = "source_integrity"
+severity = "warning"
+tier = "none"
+
+[rules.MISSING_EXPECTED_FILE]
+dimension = "source_integrity"
+severity = "warning"
+tier = "none"
+
+[rules.EMPTY_SOURCE_FILE]
+dimension = "source_integrity"
+severity = "error"
+tier = "none"
+
+[rules.EXTRA_COMPLEX_FILE]
+dimension = "source_integrity"
+severity = "info"
+tier = "none"
+
+[rules.GEOMETRY_PROCESSING_FAILED]
+dimension = "geometry"
+severity = "error"
+tier = "rejected"
+
+[rules.LIGAND_BOTH_FORMATS_FAILED]
+dimension = "geometry"
+severity = "error"
+tier = "rejected"
+
+[rules.PROTEIN_PARSE_FAILED]
+dimension = "geometry"
+severity = "error"
+tier = "rejected"
+
+[rules.POCKET_EXTRACTION_FAILED]
+dimension = "geometry"
+severity = "error"
+tier = "rejected"
+
+[rules.RCSB_ENRICHMENT_FAILED]
+dimension = "structure_mapping"
+severity = "warning"
+tier = "none"
+
+[rules.INVALID_REFERENCE_OVERRIDE]
+dimension = "bibliography"
+severity = "fatal"
+tier = "none"
+
+[rules.CONFLICTING_REFERENCE_OVERRIDES]
+dimension = "bibliography"
+severity = "fatal"
+tier = "none"
+
+[rules.PDBBIND_POCKET_COMPARISON_UNAVAILABLE]
+dimension = "pocket_comparison"
+severity = "warning"
+tier = "none"
+
+[rules.ALTERNATE_LOCATIONS_DISCARDED]
+dimension = "geometry_audit"
+severity = "info"
+tier = "none"
+
+[rules.PROTEIN_ELEMENTS_INFERRED]
+dimension = "geometry_audit"
+severity = "info"
+tier = "none"

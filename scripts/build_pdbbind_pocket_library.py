@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+"""Executable wrapper for the package CLI."""
+
 from biosensia_pocket_library.cli import main
 
 

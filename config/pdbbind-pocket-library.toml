@@ -1,0 +1,95 @@
+[pipeline]
+schema_version = "1.0.0"
+extraction_version = "1"
+random_seed = 1
+offline = false
+workers = 1
+fail_fast = false
+progress = true
+
+[paths]
+index_dir = "data/raw/index"
+complex_root = "data/raw/P-L"
+external_cache_dir = "data/cache/external"
+output_root = "data/processed/pdbbind_2020_v2024p_20250804"
+drugclip_dir = "BioSensIA-DC/external/DrugCLIP"
+biosensia_root = "BioSensIA-DC"
+drugclip_dictionary = "BioSensIA-DC/external/DrugCLIP/data/dict_pkt.txt"
+drugclip_checkpoint = "BioSensIA-DC/external/DrugCLIP/checkpoint_best.pt"
+
+[pocket]
+distance_cutoff_angstrom = 6.0
+distance_uses_ligand_heavy_atoms = true
+include_protein_hydrogens = false
+include_allowlisted_polymer_hetatm = true
+polymer_classification_policy = "pdbbind_local_v1"
+modified_residue_allowlist = ["MSE"]
+max_pocket_atoms = 256
+deterministic_crop = true
+minimum_pocket_atoms_hard = 1
+minimum_pocket_atoms_warning = 20
+
+[structure]
+model_policy = "first"
+altloc_policy = "highest_occupancy"
+coordinate_match_tolerance_angstrom = 0.50
+strict_atom_match_tolerance_angstrom = 0.10
+alignment_minimum_ca_atoms = 10
+alignment_minimum_residue_coverage = 0.50
+alignment_maximum_rmsd_angstrom = 2.0
+probable_mapping_minimum_residue_coverage = 0.25
+mapping_candidate_tie_margin = 0.01
+
+[comparison]
+atom_jaccard_moderate_minimum = 0.70
+atom_jaccard_severe_minimum = 0.40
+residue_jaccard_moderate_minimum = 0.80
+residue_jaccard_severe_minimum = 0.50
+coordinate_rmsd_warning_angstrom = 0.10
+
+[quality]
+rules_file = "config/pocket-quality-rules.toml"
+covalent_radius_margin_angstrom = 0.40
+excluded_component_bridge_cutoff_angstrom = 3.0
+separated_component_cutoff_angstrom = 8.0
+nearby_nonprotein_cutoff_angstrom = 8.0
+
+[elements]
+explicit_mappings = {}
+unsupported_policy = "reject"
+
+[ligand]
+primary_format = "sdf"
+fallback_format = "mol2"
+sanitize = true
+allow_multiple_components = true
+multiple_sdf_record_policy = "reject"
+pocket_defining_component_policy = "all_components"
+require_3d_coordinates = true
+
+[rcsb]
+download_mmcif = true
+download_compressed = true
+timeout_seconds = 60.0
+maximum_retries = 5
+requests_per_second = 2.0
+use_data_api = true
+use_graphql = true
+cache_mode = "content_addressed"
+
+[bibliography]
+external_enrichment_enabled = false
+extract_mmcif_citations = true
+query_crossref = false
+query_pubmed = false
+allow_pdbbind_page_lookup = false
+contact_email_env = "BIOSENSIA_BIBLIOGRAPHY_EMAIL"
+pubmed_api_key_env = "NCBI_API_KEY"
+manual_overrides_path = "data/config/affinity_reference_overrides.csv"
+
+[lmdb]
+map_size = "auto"
+map_size_headroom_fraction = 0.25
+overwrite = false
+pickle_protocol = 4
+include_geometry_quality_tiers = ["A", "B"]

@@ -1,0 +1,89 @@
+from pathlib import Path
+
+import json
+
+import pyarrow.parquet as pq
+
+from biosensia_pocket_library.config import load_config
+from biosensia_pocket_library.pipeline import build_library
+from biosensia_pocket_library.validation import validate_run
+
+
+def _pdb_atom(serial, name, residue, number, x, element="C"):
+    return (f"ATOM  {serial:5d} {name:>4s} {residue:>3s} A{number:4d}    "
+            f"{x:8.3f}{0.0:8.3f}{0.0:8.3f}{1.0:6.2f}{20.0:6.2f}          {element:>2s}\n")
+
+
+def _fixture(root: Path):
+    index = root / "data/raw/index"
+    complex_dir = root / "data/raw/P-L/1981-2000/1abc"
+    index.mkdir(parents=True)
+    complex_dir.mkdir(parents=True)
+    for name in ("INDEX_general_NL.2020R1.lst", "INDEX_general_PN.2020R1.lst", "INDEX_general_PP.2020R1.lst"):
+        (index / name).write_text("# empty\n")
+    (index / "README").write_text(
+        "This special data package contains 1 protein-ligand complexes in PDBbind v2020; "
+        "structures were reprocessed in v2024. Latest update: Aug 2025\n"
+    )
+    (index / "INDEX_general_PL.2020R1.lst").write_text(
+        "# 1 protein-ligand complexes in total\n# Latest update: Aug 2025\n"
+        "1abc 2.00 2001 Kd<10uM // hidden.PDF (LIG) synthetic\n")
+    sdf = """ligand
+test
+
+  1  0  0  0  0  0            999 V2000
+    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+M  END
+$$$$
+"""
+    (complex_dir / "1abc_ligand.sdf").write_text(sdf)
+    protein = "HEADER TEST\n" + _pdb_atom(1, "CA", "ALA", 1, 2.2) + _pdb_atom(2, "CB", "ALA", 1, 3.2) + "END\n"
+    (complex_dir / "1abc_protein.pdb").write_text(protein)
+    (complex_dir / "1abc_pocket.pdb").write_text(protein)
+    biosensia = root / "BioSensIA-DC"
+    drugclip = biosensia / "external/DrugCLIP"
+    for relative in ("unimol/tasks/drugclip.py", "unimol/data/lmdb_dataset.py",
+                     "unimol/data/affinity_dataset.py", "unimol/data/remove_hydrogen_dataset.py",
+                     "unimol/data/cropping_dataset.py", "unimol/data/normalize_dataset.py"):
+        path = drugclip / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# {relative}\n")
+    (drugclip / "data").mkdir(parents=True)
+    (drugclip / "data/dict_pkt.txt").write_text("[PAD]\nC\nN\nO\nS\nH\n")
+    (biosensia / "lmdb_helpers.py").write_text("# helper\n")
+
+
+def test_synthetic_end_to_end_build(tmp_path: Path):
+    _fixture(tmp_path)
+    config = load_config(project_root=tmp_path, overrides={
+        "pipeline.offline": True, "pipeline.progress": False, "rcsb.download_mmcif": False,
+        "pocket.minimum_pocket_atoms_warning": 1,
+    })
+    run_dir = build_library(config, pdb_ids=["1abc"], progress=False)
+    assert run_dir.name.startswith("pb20-v24p-20250804-v1-")
+    assert validate_run(run_dir, config, progress=False) == []
+    complex_row = pq.read_table(run_dir / "sidecars/complexes.parquet").to_pylist()[0]
+    assert complex_row["processing_status"].startswith("accepted")
+    assert ".pdf" not in complex_row["index_line_redacted"].lower()
+    pocket = pq.read_table(run_dir / "sidecars/pockets.parquet").to_pylist()[0]
+    assert pocket["drugclip_export_view"] == "contact_atom"
+    assert pocket["pocket_instance_id"].startswith(complex_row["complex_id"] + ":")
+    assert (run_dir / "lmdb/candidate_pockets.lmdb").is_file()
+
+
+def test_worker_count_does_not_change_logical_outputs(tmp_path: Path):
+    roots = [tmp_path / "one", tmp_path / "two"]
+    manifests = []
+    for workers, root in zip((1, 2), roots, strict=True):
+        _fixture(root)
+        config = load_config(project_root=root, overrides={
+            "pipeline.offline": True, "pipeline.progress": False, "pipeline.workers": workers,
+            "rcsb.download_mmcif": False, "pocket.minimum_pocket_atoms_warning": 1,
+        })
+        run_dir = build_library(config, pdb_ids=["1abc"], progress=False)
+        manifests.append(json.loads((run_dir / "manifest.json").read_text()))
+    assert manifests[0]["semantic_config_hash"] == manifests[1]["semantic_config_hash"]
+    assert manifests[0]["operational_config_hash"] != manifests[1]["operational_config_hash"]
+    assert {key: value["logical_sha256"] for key, value in manifests[0]["sidecar_artifacts"].items()} == {
+        key: value["logical_sha256"] for key, value in manifests[1]["sidecar_artifacts"].items()
+    }
