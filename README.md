@@ -12,6 +12,6 @@ uv run biosensia-pocket-library build \
   --pdb-id 2tpi --offline
 ```
 
-For the full design, algorithms, commands, output contract, and troubleshooting guidance, see [`pdbbind_pocket_library.qmd`](pdbbind_pocket_library.qmd).
+For the full design, algorithms, commands, output contract, and troubleshooting guidance, see [`pdbbind_pocket_library.md`](pdbbind_pocket_library.md).
 
 The raw and derived coordinate-bearing data are intentionally ignored by Git. They inherit access and redistribution constraints from PDBbind and must not be redistributed without authorization.

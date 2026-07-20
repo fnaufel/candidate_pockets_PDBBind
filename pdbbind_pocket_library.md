@@ -1,0 +1,795 @@
+# Building the BioSensIA-DC Candidate Pocket Library
+BioSensIA
+2026-07-20
+
+- [Purpose](#purpose)
+- [Implementation map](#implementation-map)
+- [Prerequisites](#prerequisites)
+  - [Python environment](#python-environment)
+  - [Expected links and data layout](#expected-links-and-data-layout)
+- [Configuration and run identity](#configuration-and-run-identity)
+- [Geometry construction](#geometry-construction)
+  - [Index and binding measurements](#index-and-binding-measurements)
+  - [Ligand parsing](#ligand-parsing)
+  - [Protein parsing](#protein-parsing)
+  - [Comparable views and export](#comparable-views-and-export)
+  - [PDBbind pocket comparison](#pdbbind-pocket-comparison)
+- [Quality model](#quality-model)
+- [Running the pipeline](#running-the-pipeline)
+  - [Development build](#development-build)
+  - [Full build](#full-build)
+  - [Individual commands](#individual-commands)
+    - [Parse and check the index](#parse-and-check-the-index)
+    - [Inventory selected local
+      sources](#inventory-selected-local-sources)
+    - [Populate the RCSB cache](#populate-the-rcsb-cache)
+    - [Build authoritative sidecars without
+      LMDB](#build-authoritative-sidecars-without-lmdb)
+    - [Export an LMDB profile from completed
+      sidecars](#export-an-lmdb-profile-from-completed-sidecars)
+    - [Revalidate a completed run](#revalidate-a-completed-run)
+    - [Regenerate summary reports](#regenerate-summary-reports)
+- [Output contract](#output-contract)
+- [Validation and tests](#validation-and-tests)
+  - [Linked DrugCLIP loader compatibility
+    test](#linked-drugclip-loader-compatibility-test)
+- [Troubleshooting](#troubleshooting)
+
+# Purpose
+
+The `biosensia_pocket_library` package constructs a DrugCLIP-compatible
+candidate-pocket library from the **PDBbind 2020 nominal complex set
+with v2024-reprocessed structures and an index revised on 2025-08-04**.
+
+The implementation has two products:
+
+1.  Parquet sidecars containing the authoritative scientific data and
+    provenance.
+2.  A minimal LMDB projection containing only the three fields consumed
+    by the verified BioSensIA-DC/DrugCLIP target-fishing loader.
+
+PDBbind is licensed data. Raw structures and derived coordinate-bearing
+artifacts are ignored by Git and must not be redistributed unless the
+relevant authorization permits it.
+
+# Implementation map
+
+``` mermaid
+flowchart TD
+  A[PDBbind index and four local files] --> B[Read-only identity bootstrap]
+  D[Linked BioSensIA-DC / DrugCLIP] --> B
+  B --> C[Local ligand and protein parsing]
+  C --> E[Contact and residue-expanded views]
+  E --> F[Geometry hashes and quality]
+  E --> G[PDBbind pocket comparison]
+  H[RCSB content-addressed cache] --> I[Mapping and citation enrichment]
+  F --> J[Explicit-schema Parquet sidecars]
+  G --> J
+  I --> J
+  J --> K[Dense-key protocol-4 LMDB]
+  K --> L[Validation and reports]
+```
+
+The geometry branch uses only local PDBbind coordinates, configured
+geometry policies, and the verified DrugCLIP token contract. RCSB and
+citation results are downstream enrichment and cannot alter pocket
+membership, geometry quality, hashes, identifiers, or LMDB eligibility.
+
+The principal modules are:
+
+| Module | Responsibility |
+|----|----|
+| `config.py` | Strict TOML loading, path normalization, semantic and operational hashes |
+| `index_parser.py` | Index parsing, binding normalization, duplicate rules |
+| `source_inventory.py` | Deterministic year-directory discovery and source checksums |
+| `drugclip_compatibility.py` | Linked revision and task/loader/helper/dictionary/checkpoint fingerprints |
+| `ligand_parser.py` | Staged SDF/MOL2 RDKit parsing, chemistry, components, geometry hashes |
+| `protein_parser.py` | [Gemmi](https://gemmi.readthedocs.io/en/latest/) validation, fixed-column atom identity, model and altloc policy |
+| `pocket_extractor.py` | Contact/residue views, deterministic order/crop, content/derivation hashes |
+| `pocket_comparison.py` | Like-for-like uncropped comparison with one-to-one matching |
+| `quality.py` | Computable A/B/C geometry rules independent of enrichment quality |
+| `rcsb.py` | Content-addressed mmCIF cache, direct chain candidates, mmCIF citations |
+| `schemas.py`, `sidecars.py` | Exact Arrow schemas, canonical row order, atomic writes, relationships |
+| `lmdb_export.py` | Sidecar-only filtered LMDB export and logical/physical checksums |
+| `validation.py`, `reporting.py` | Cross-artifact validation and deterministic summaries |
+| `pipeline.py`, `cli.py` | Bootstrap identity, stage coordination, progress, command interface |
+
+# Prerequisites
+
+## Python environment
+
+The supported interpreter range is Python 3.11.x. Install the locked
+environment from the repository root:
+
+``` bash
+uv sync
+```
+
+New implementation dependencies (relative to BioSensia-DC) are bounded
+in `pyproject.toml`: Gemmi parses PDB/mmCIF, HTTPX performs cached RCSB
+requests, Tenacity supplies bounded retry behavior, and SciPy provides
+deterministic minimum-cost one-to-one fallback atom assignment. Existing
+RDKit, NumPy, PyArrow, LMDB, tqdm, and pytest dependencies are reused.
+
+## Expected links and data layout
+
+The default configuration expects:
+
+``` text
+BioSensIA-DC -> /path/to/BioSensIA-DC
+data/raw/index/
+data/raw/P-L/
+├── 1981-2000/
+├── 2001-2010/
+└── 2011-2019/
+```
+
+`BioSensIA-DC/external/DrugCLIP` must contain the active `dict_pkt.txt`,
+task, data wrappers, and normally `checkpoint_best.pt`. Furthermore,
+`BioSensIA-DC/lmdb_helpers.py` is part of the fingerprinted contract.
+The configured PDBbind root may itself be a deliberate symbolic link;
+arbitrary links encountered elsewhere are not searched.
+
+Run the DrugCLIP contract preflight before a long build:
+
+``` bash
+uv run biosensia-pocket-library check-drugclip-contract \
+  --config config/pdbbind-pocket-library.toml
+```
+
+This command performs **one part of the build bootstrap**, but not the
+entire bootstrap. It checks the consumer side of the interface: the
+exact BioSensIA-DC revision, DrugCLIP task and loader code, helper code,
+pocket dictionary, and checkpoint that will consume the exported LMDB.
+It streams a byte progress bar while hashing a large checkpoint, then
+reports the BioSensIA-DC Git revision and dirty state, individual
+hashes, the aggregate loader hash, supported dictionary tokens, and the
+full contract fingerprint. It is safe to run independently because it
+only reads and hashes these inputs; it does not create a run directory.
+
+The complete bootstrap happens automatically at the beginning of `build`
+or `build-sidecars`. In addition to repeating the DrugCLIP contract
+check, it parses and verifies the PDBbind index, validates the
+mixed-version dataset identity, applies the requested complex selection,
+inventories and hashes the selected local source files, and computes
+every fingerprint needed for the run ID. This phase remains read-only
+until all identities are known. Only then does the program create the
+uniquely named run directory. Therefore, the command above is best
+understood as an inexpensive, focused **DrugCLIP contract preflight**
+for the broader automatic bootstrap.
+
+# Configuration and run identity
+
+Copy and edit `config/pdbbind-pocket-library.toml`. Unknown sections and
+keys are errors. Configuration precedence is defaults, TOML, then CLI
+overrides.
+
+Here, **scientific settings** means any setting capable of changing the
+meaning, membership, coordinates, classification, or serialized contents
+of the candidate library. Examples include the ligand–protein distance
+cutoff; model, alternate-location, hydrogen, and element policies; the
+maximum exported pocket size; ligand parsing and component policies; the
+contents of the quality-rule file; the permitted geometry tiers; and
+whether a source of enrichment is enabled. Changing one of these
+settings can change which atoms or pockets are retained, the values
+written to sidecars, or the bytes written to LMDB. These
+content-affecting settings contribute to `semantic_config_hash`.
+
+By contrast, **operational settings** change how the same scientific
+result is produced, not what that result means. Examples are `workers`,
+`fail_fast`, progress display, network timeout/retry/rate limits, cache
+locations, and LMDB allocation headroom. They contribute to
+`operational_config_hash`. Source paths are also operational because the
+actual source contents are fingerprinted separately. Keeping the two
+hashes separate lets two runs be recognized as scientifically equivalent
+even if, for example, one used eight workers and the other used one.
+Paths under the project are serialized in project-relative POSIX form.
+Secret values are never read into or written from this configuration;
+only configured environment-variable names are retained.
+
+Before creating a run directory, the bootstrap computes:
+
+- `semantic_config_hash` from content-affecting configuration;
+- `source_fingerprint` from the distribution identity and selected local
+  source IDs/checksums;
+- `selection_fingerprint` from sorted PDB IDs and canonical filters;
+- `drugclip_contract_fingerprint` from the linked revision and code/data
+  hashes.
+
+The directory name makes those identities visible:
+
+``` text
+pb20-v24p-20250804-v1-<semantic8>-<source8>-<selection8>-<contract8>
+```
+
+`--resume` accepts only a run with identical full fingerprints. A
+completed compatible run is returned without rebuilding.
+`--overwrite-run` first moves the exact existing run to a timestamped
+sibling backup. The implementation never treats `output_root` itself as
+an overwrite target.
+
+# Geometry construction
+
+## Index and binding measurements
+
+The protein–ligand index parser ignores comments and blanks, verifies
+its declared count, and collapses only equivalent duplicate PDB IDs.
+Conflicting duplicates are fatal. Every whitespace-delimited token after
+`//` whose basename ends in `.pdf` is removed before labels, comments,
+errors, reports, or logs can persist it.
+
+Measurements such as `Kd=49uM`, `Ki<=17nM`, `IC50≈5 nM`, and
+`Ka=1.2e6M-1` retain their raw token. Concentrations are normalized to
+molar and transformed to `-log10`; inequalities reverse on that scale.
+`Ka` is normalized separately to inverse molar and transformed with
+`log10`, without relation reversal.
+
+## Ligand parsing
+
+RDKit attempts the configured primary SDF file, then MOL2 fallback. It
+rejects missing/nonfinite 3D coordinates and unresolved atomic numbers,
+records chemical identifiers and component membership, and compares
+usable SDF/MOL2 atom order and coordinates. A content hash describes
+atomic numbers, components, and coordinates. A distinct derivation hash
+describes source checksum and parsing policy.
+
+## Protein parsing
+
+Gemmi first validates that the PDB structure is readable. A fixed-column
+pass retains the exact PDBbind atom order and identifiers. Version 1
+selects the first model.
+
+A PDB file can contain two or more experimentally observed positions for
+the same atom. These alternatives are distinguished by the PDB
+**alternate-location indicator**, commonly shortened to **altloc**; for
+example, conformers `A` and `B` may describe two positions of one side
+chain, with occupancies estimating their relative populations. Feeding
+every conformer to the model would incorrectly duplicate atoms, while
+choosing whichever record appears first would make the result depend on
+file ordering. The pipeline therefore groups records that describe the
+same physical atom and selects exactly one conformer deterministically:
+highest occupancy first, then a blank altloc, then `A`, then the
+lexically smallest remaining altloc identifier, and finally source order
+as a tie-breaker. Discarded alternatives remain auditable through the
+`ALTERNATE_LOCATIONS_DISCARDED` issue code.
+
+Canonical amino-acid `ATOM` records and allowlisted modified-polymer
+`HETATM` records are protein; waters, metals, cofactors, and other
+components remain excluded diagnostics.
+
+## Comparable views and export
+
+Three uncropped representations are retained:
+
+- `contact_atom`: protein heavy atoms individually at or below 6 Å from
+  any pocket-defining ligand heavy atom;
+- `contact_residue`: residues containing a contact atom;
+- `residue_expanded_atom`: every locally classified protein heavy atom
+  in those residues.
+
+Extraction schema version 1 exports **`contact_atom`**. Export order is
+minimum ligand distance, chain, residue number, insertion code, residue
+name, atom name, alternate location, then original source order. The
+maximum is controlled by `pocket.max_pocket_atoms` in
+`config/pdbbind-pocket-library.toml`; its default value is 256 because
+that is the default DrugCLIP pocket limit. If the contact view contains
+more atoms than the configured maximum, the pipeline retains the nearest
+atoms in the deterministic order just described. The same maximum must
+be compatible with the active DrugCLIP configuration, and changing it
+changes the semantic configuration hash. Performing this deterministic
+crop during construction ensures that DrugCLIP’s later random cropping
+wrapper has nothing left to remove, so repeated inference sees the same
+pocket atoms.
+
+The pocket content hash covers only the exact ordered element tokens and
+little-endian float32 coordinates serialized to LMDB. The derivation
+hash also covers the distribution, protein source checksum, ligand
+derivation, policies, ordered atom identities, float64 source
+coordinates/distances, and content hash. A pocket identifier is:
+
+``` text
+<complex_id>:<first-16-hex-of-pocket-derivation-hash>
+```
+
+## PDBbind pocket comparison
+
+The pocket file provided by PDBbind is parsed with the same policies.
+Its contact subset is compared only with the re-extracted contact view;
+all locally classified heavy atoms in the file are compared with the
+residue-expanded view. Neither primary view is cropped. Exact canonical
+identities are matched first, followed by deterministic one-to-one
+element/coordinate matches under tolerance. The residue-expanded result
+determines the pocket-level comparison quality.
+
+# Quality model
+
+The quality model separates two ideas that are easy to conflate: a
+**tier** summarizes the suitability of locally constructed geometry,
+whereas a **status** records what happened in one particular processing
+or enrichment dimension. A lower-confidence citation, for example, does
+not make otherwise sound coordinates geometrically worse. Similarly,
+disagreement with the PDBbind-provided pocket is useful audit
+information, but it does not silently rewrite the locally extracted
+pocket. Keeping the dimensions separate prevents missing network
+metadata or uncertain bibliography from excluding valid geometry.
+
+Geometry tiers are assigned from explicit, versioned rules rather than
+subjective inspection:
+
+| Geometry value | Meaning | Default LMDB treatment |
+|----|----|----|
+| `A` | Construction succeeded and no issue mapped to tier B or C was found. This is the cleanest locally computable geometry class. | Included |
+| `B` | Construction succeeded, but at least one controlled caveat occurred, such as deterministic cropping, MOL2 fallback, SDF/MOL2 disagreement, inclusion of an allowed modified residue, or an explicit element mapping. | Included |
+| `C` | Construction succeeded and remains available for analysis, but at least one issue calls for greater caution, such as a probable covalent contact, a very small pocket, an excluded component bridging the ligand and protein, unsupported atoms being excluded, separated ligand components, or a local missing-atom record. | Excluded by default |
+| `rejected` | A required geometry step failed, so there is no usable pocket to export. Examples include failure of both ligand formats or failure to parse the protein. | Never included |
+| `not_processed` | No geometry decision was reached, usually because an earlier required input or stage prevented processing. | Never included |
+
+If several issue codes apply, the most cautionary applicable tier wins:
+C takes precedence over B, and B takes precedence over A. The mapping
+from issue code to effect is declared in
+`config/pocket-quality-rules.toml`. Unknown issue codes are validation
+errors, which prevents a new warning from accidentally being treated as
+harmless.
+
+The related `processing_status` describes execution outcome rather than
+quality rank: `accepted` means usable geometry with no recorded
+warnings, `accepted_with_warnings` means usable geometry with one or
+more warnings, `rejected` means construction failed, and `not_processed`
+means the decision was never reached. Thus, a tier-B or tier-C pocket
+can still have an accepted processing status; the tier explains the
+warning’s scientific consequence.
+
+Four dimensions stay independent:
+
+| Dimension | Examples |
+|----|----|
+| Geometry | `A`, `B`, `C`, `rejected`, `not_processed` |
+| Pocket comparison | `concordant`, `moderate_difference`, `severe_difference`, `unavailable` |
+| Structure mapping | `exact`, `aligned`, `ambiguous`, `unresolved`, `unavailable` |
+| Bibliography | `exact`, `probable`, `unresolved`, `unavailable`, `not_attempted` |
+
+Only the geometry tier controls the default LMDB.
+`config/pocket-quality-rules.toml` maps every recognized geometry issue
+to a tier. Tier C checks are computed, including covalent-radius
+proximity, excluded-component bridging, very small pockets, excluded
+unsupported atoms, and spatially separated ligand components. Unknown
+geometry issue codes fail validation rather than being silently
+classified.
+
+The geometry tiers admitted to the final default LMDB are configurable
+with `lmdb.include_geometry_quality_tiers` in
+`config/pdbbind-pocket-library.toml`. The shipped configuration is
+`["A", "B"]`. Setting it to `["A"]` creates a more conservative default
+library, while `["A", "B", "C"]` includes every usable tier; the choice
+is content-affecting and therefore changes the semantic configuration
+hash and run identity. Rejected and unprocessed entries cannot be
+enabled. For an already completed sidecar build, `export-lmdb` also
+provides named profiles: `tier-a` selects A, `tiers-ab` selects A and B,
+and `all-usable` selects A, B, and C. This allows sensitivity analyses
+without reconstructing geometry, while the profile metadata records the
+exact filter used.
+
+Bibliographic candidate links and final adjudications are separate
+tables. An mmCIF primary citation produces only probable structural
+evidence, never an exact affinity assertion. Auditable CSV or Parquet
+overrides can be supplied at `bibliography.manual_overrides_path`;
+conflicts and invalid measurement/citation references become fatal
+override issues without changing source-derived citation rows.
+
+# Running the pipeline
+
+## Development build
+
+Use an offline, deterministic one-entry build first:
+
+``` bash
+uv run biosensia-pocket-library build \
+  --config config/pdbbind-pocket-library.toml \
+  --pdb-id 2tpi \
+  --offline
+```
+
+Other reproducible selectors are `--pdb-id` (repeatable),
+`--pdb-ids-file`, `--year-from`, `--year-to`, and `--limit`. The limit
+is applied after sorting by PDB ID. Operations expected to take more
+than seconds show tqdm progress bars; `--no-progress` disables them for
+logs and automation.
+
+## Full build
+
+``` bash
+uv run biosensia-pocket-library build \
+  --config config/pdbbind-pocket-library.toml \
+  --workers 8
+```
+
+Complex-level ligand/protein parsing and extraction use a bounded worker
+pool; workers return isolated structured rows to a deterministic
+single-writer coordinator. `workers` is captured as operational
+identity, and final canonical sorting makes output independent of
+completion order. RCSB requests are rate-limited, retried, validated,
+and stored by SHA-256. Use `--offline` to consume only existing cache
+references. `--offline --refresh-cache` is rejected.
+
+## Individual commands
+
+### Parse and check the index
+
+`parse-index` is a fast, read-only dataset/count preflight. It parses
+`INDEX_general_PL.2020R1.lst`, strips forbidden PDF-looking tokens from
+post-`//` text, normalizes binding measurements, checks duplicate PDB
+IDs, and reports the declared, physical-line, unique-record, and
+selected counts as JSON. Selection options such as `--pdb-id`, year
+bounds, and `--limit` can be used to check the exact subset intended for
+a later build. It does not inspect complex coordinate files, verify the
+DrugCLIP contract, or create a run directory, so it is narrower than the
+full bootstrap.
+
+``` bash
+uv run biosensia-pocket-library parse-index --config config/pdbbind-pocket-library.toml
+```
+
+### Inventory selected local sources
+
+`inventory` first parses and selects index records, then finds the
+matching complex directories beneath the configured PDBbind root. For
+each selected complex it checks the expected protein, ligand SDF, ligand
+MOL2, and PDBbind pocket files; records missing, empty, extra,
+duplicate, or case-mismatched files; and hashes discovered sources. Its
+JSON output summarizes the number selected, found, and problematic. This
+is also read-only and creates no run directory, making it useful for
+detecting an incomplete local copy before an expensive build.
+
+``` bash
+uv run biosensia-pocket-library inventory --config config/pdbbind-pocket-library.toml --limit 100
+```
+
+### Populate the RCSB cache
+
+`download-rcsb` fetches mmCIF files for the selected PDB IDs and places
+validated responses in the content-addressed RCSB cache. Downloads are
+rate-limited, retried, checksum-verified, and shown with progress.
+Existing valid cache entries are reused unless `--refresh-cache` is
+given. In offline mode the command performs no network requests and can
+use only cached references. This command populates enrichment inputs; it
+neither extracts pockets nor changes any geometry decision.
+
+``` bash
+uv run biosensia-pocket-library download-rcsb --config config/pdbbind-pocket-library.toml --limit 100
+```
+
+### Build authoritative sidecars without LMDB
+
+`build-sidecars` runs the full identity bootstrap and scientific
+construction pipeline: source inventory, ligand and protein parsing,
+pocket extraction, quality classification, PDBbind-pocket comparison,
+optional RCSB and citation enrichment, normalized Parquet writing,
+validation, and report generation. It deliberately stops before LMDB
+export. The resulting run has status `sidecars_complete` and is useful
+when the authoritative relational data should be reviewed before
+choosing an LMDB inclusion profile. Because run identity is computed in
+the same way as for `build`, these sidecars retain the complete
+provenance contract.
+
+``` bash
+uv run biosensia-pocket-library build-sidecars --config config/pdbbind-pocket-library.toml --limit 100
+```
+
+### Export an LMDB profile from completed sidecars
+
+`export-lmdb` reads an existing run’s Parquet sidecars as its sole
+scientific input, rechecks the active DrugCLIP contract, filters pockets
+according to the requested profile, and writes a deterministic LMDB plus
+profile metadata. It also replaces that profile’s rows in
+`lmdb_records.parquet` and updates the manifest’s profile and artifact
+inventories. The example exports only tier-A geometry. Other choices are
+`default`, `tiers-ab`, and `all-usable`; use `--overwrite` when
+intentionally replacing an existing file for the same profile.
+
+``` bash
+uv run biosensia-pocket-library export-lmdb \
+  --run-dir data/processed/pdbbind_2020_v2024p_20250804/<run-id> \
+  --profile tier-a
+```
+
+### Revalidate a completed run
+
+`validate` is a read-only integrity check over an existing run. It
+checks exact sidecar schemas, primary and foreign keys, enumerated
+statuses, forbidden PDF-looking text, issue-code coverage,
+one-adjudication-per-measurement rules, pocket content-hash
+regeneration, sidecar joins, manifest/run-directory consistency, and
+every recorded LMDB profile, including dense keys and record contents.
+It prints `Validation passed` and exits with status 0 on success;
+otherwise it prints the detected errors and exits nonzero, which makes
+it suitable for CI or promotion gates.
+
+``` bash
+uv run biosensia-pocket-library validate --run-dir data/processed/pdbbind_2020_v2024p_20250804/<run-id>
+```
+
+### Regenerate summary reports
+
+`report` recomputes the human- and machine-readable summaries from the
+existing sidecars and manifest. These include build counts, quality and
+failure distributions, pocket-size and comparison distributions, mapping
+status, reference status, and LMDB-profile counts. Unlike `validate`,
+this command writes files under `reports/`; it then refreshes the
+manifest’s output-file inventory and checksums. It does not rerun
+geometry extraction or RCSB enrichment.
+
+``` bash
+uv run biosensia-pocket-library report --run-dir data/processed/pdbbind_2020_v2024p_20250804/<run-id>
+```
+
+The Python API is equally direct:
+
+``` python
+from biosensia_pocket_library import build_library, load_config
+
+config = load_config("config/pdbbind-pocket-library.toml")
+run_dir = build_library(config, pdb_ids=["2tpi"], progress=True)
+```
+
+# Output contract
+
+Each run contains:
+
+- **`manifest.json`**
+
+  This is the run’s top-level provenance and integrity record. It
+  identifies the pipeline and repository revision, dirty-code
+  fingerprint, Python and dependency versions, dataset identity,
+  selection, semantic and operational configuration hashes, source
+  fingerprint, DrugCLIP contract fingerprint, stage statuses, result
+  counts, LMDB profiles, integration-test results, and checksums for
+  files inside the declared checksum boundary. The manifest is updated
+  atomically as stages complete. It is excluded from its own checksum
+  inventory to avoid an impossible self-referential hash.
+
+- **`config.resolved.toml`**
+
+  This is the complete effective configuration after defaults, the user
+  TOML, and CLI overrides have been combined and paths normalized. It
+  lets a reader see the actual settings used rather than reconstructing
+  them from several sources. It records environment-variable *names*
+  relevant to optional services, but never copies secret values into the
+  run.
+
+- **`checkpoints/<stage>/complete.json`**
+
+  Each stage directory contains a small completion marker naming the
+  stage and its version, the run’s identity fingerprints, relevant input
+  hashes, and hashes of that stage’s material outputs. These markers
+  distinguish a genuinely completed stage from a partially written
+  directory and support safe resume checks. They are control metadata,
+  so they are not themselves part of the final artifact checksum
+  boundary.
+
+- **`sidecars/*.parquet`**
+
+  These normalized Parquet tables are the authoritative scientific and
+  provenance representation of the library. They cover source files,
+  index occurrences and measurements, complexes, ligands and components,
+  pockets and atoms, comparisons and differences, chain and UniProt
+  mappings, ligand mapping candidates, citations and authors,
+  affinity-reference decisions, nearby excluded components, processing
+  issues, and LMDB record membership. Every table is written with an
+  explicit Arrow schema and semantic version even when it has zero rows.
+  The LMDB is a projection of these tables, not an independent source of
+  truth.
+
+- **`lmdb/candidate_pockets.lmdb`**
+
+  This is the default DrugCLIP-compatible LMDB created by `build`,
+  stored as a single file rather than an LMDB subdirectory. Its dense
+  ASCII keys (`0`, `1`, …) map to protocol-4 pickle records containing
+  exactly the pocket identifier, element-token sequence, and
+  little-endian float32 coordinate matrix. Other named export profiles
+  use sibling filenames such as `candidate_pockets_tier_a.lmdb`. A
+  `build-sidecars` run will not contain LMDB files until `export-lmdb`
+  is invoked.
+
+- **`lmdb/candidate_pockets.lmdb.profile.json`**
+
+  This companion file describes how the default LMDB was derived:
+  profile name, tier filter, schema and pickle versions, record count,
+  DrugCLIP contract identity, physical file SHA-256, and the logical
+  digest over framed key/value bytes. Each named LMDB profile has its
+  own adjacent `.profile.json`. Consumers should namespace or invalidate
+  embedding caches using the logical digest, because a familiar filename
+  alone does not prove identical contents.
+
+- **`reports/*`**
+
+  This directory contains deterministic summaries intended for
+  inspection and downstream quality control. It includes JSON and
+  Markdown build summaries plus Parquet count/distribution tables for
+  geometry quality, failures, pocket sizes, pocket comparison, structure
+  mapping, UniProt mapping, and reference adjudication. The linked
+  DrugCLIP compatibility script also writes
+  `drugclip_loader_integration.json` here when that separate test
+  succeeds.
+
+- **`logs/pipeline.log`**
+
+  This is the human-readable chronological execution log. It is useful
+  for following individual complex outcomes and diagnosing
+  infrastructure failures. Logs are intentionally outside the artifact
+  checksum boundary because timestamps and operational messages may vary
+  without changing scientific results.
+
+- **`logs/events.jsonl`**
+
+  This is the structured counterpart to `pipeline.log`: one scrubbed
+  JSON object per event, suitable for programmatic filtering and
+  aggregation. It carries stage, severity, issue code, complex context,
+  and message fields without retaining forbidden PDF-looking tokens.
+  Like the text log, it is operational evidence rather than a
+  checksummed scientific artifact.
+
+All normalized sidecar tables are emitted with explicit Arrow schemas
+even when empty. Parquet metadata records schema name and semantic
+version. Writers reject unknown columns, sort by the schema’s canonical
+keys, and write through a temporary file before atomic replacement.
+`processing_issues.parquet` uses deterministic issue IDs; its timestamps
+are volatile and excluded from logical table checksums.
+
+The default LMDB is opened with `subdir=False`, has dense ASCII keys
+`b"0"`, `b"1"`, and so on, and contains protocol-4 pickles with exactly:
+
+``` python
+{
+    "pocket": pocket_instance_id,
+    "pocket_atoms": ["C", "N", "O", ...],
+    "pocket_coordinates": numpy_array_float32_little_endian_N_by_3,
+}
+```
+
+The writer validates finite contiguous arrays, no hydrogens, unchanged
+DrugCLIP token transformation, dictionary membership, the atom cap,
+record order, and dense keys before publishing. Profile metadata records
+physical file SHA-256 and an authoritative logical digest over
+length-framed key/value byte pairs. BioSensIA embedding caches must be
+invalidated or namespaced by this logical digest whenever an LMDB
+changes.
+
+The manifest checksum boundary includes resolved configuration, final
+Parquet sidecars other than the inventory’s self-reference, reports,
+LMDB files, and profile JSON. It excludes the manifest itself, logs,
+checkpoints, temporary files, lock files, and inventory self-checksum.
+
+# Validation and tests
+
+Run the complete test suite:
+
+``` bash
+uv run pytest -q
+```
+
+The suite covers comment redaction, concentration and
+association-constant normalization, duplicate index identity, the
+deterministic alternate-conformer selection policy explained under
+[Protein parsing](#protein-parsing), inclusive cutoff behavior, contact
+versus residue-expanded views, deterministic cropping and hashing,
+explicit empty-table schemas, LMDB round trips, a synthetic end-to-end
+build, and a local 2TPI geometry check when licensed data are present.
+
+## Linked DrugCLIP loader compatibility test
+
+The pytest suite verifies the builder in its own lightweight
+environment, but the strongest interface check must use the actual
+loader classes in the linked BioSensIA-DC checkout. Those classes depend
+on PyTorch and compiled Uni-Core components that are intentionally not
+duplicated in this project’s environment. Run the following command with
+the BioSensIA-DC virtual environment after a default LMDB has been
+built:
+
+``` bash
+BioSensIA-DC/.venv/bin/python scripts/verify_drugclip_loader.py \
+  --run-dir data/processed/pdbbind_2020_v2024p_20250804/<run-id> \
+  --biosensia-root BioSensIA-DC
+```
+
+The script prepends the linked Uni-Core and DrugCLIP source directories
+to Python’s import path and imports the real wrapper implementations
+from that checkout. It then performs the following steps on record 0 of
+the default LMDB:
+
+1.  **`LMDBDataset` opens and deserializes the record.** It opens
+    `lmdb/candidate_pockets.lmdb` as a read-only single-file LMDB
+    (`subdir=False`), obtains the numeric keys, reads key `b"0"`, and
+    unpickles its value. This verifies the physical database layout,
+    dense-key convention, pickle compatibility, and three-field record
+    shape at the point where DrugCLIP actually consumes them. The script
+    fails immediately if the database is empty.
+
+2.  **`AffinityPocketDataset` adapts the raw record to DrugCLIP’s pocket
+    interface.** It reads `pocket_atoms`, stacks `pocket_coordinates`
+    into an N-by-3 float32 array, copies the `pocket` identifier, and
+    applies DrugCLIP’s `pocket_atom` token transformation. That
+    transformation reduces a token according to the linked loader’s
+    rules, so the test requires every exported token to remain
+    unchanged. This detects subtle dictionary/interface problems before
+    model inference.
+
+3.  **`RemoveHydrogenPocketDataset` applies DrugCLIP’s hydrogen
+    policy.** With the arguments used by the target-fishing path, it
+    removes atoms whose token is `H` and applies the same mask to
+    coordinates. The builder is supposed to export no hydrogens, so this
+    wrapper must be an identity operation. If it removes anything, the
+    test reports a contract failure rather than allowing the model to
+    receive a pocket different from the checksummed export.
+
+4.  **`CroppingPocketDataset` applies DrugCLIP’s atom limit.** In the
+    linked implementation, an over-limit pocket is sampled without
+    replacement with probabilities derived from distance to the pocket
+    centroid. That operation is seeded, but it still selects a subset
+    rather than preserving the exported representation. Because the
+    builder has already cropped deterministically to
+    `pocket.max_pocket_atoms`, this wrapper must also be an identity
+    operation. The script compares both tokens and coordinates before
+    and after the wrapper.
+
+5.  **`NormalizeDataset` centers the coordinates.** It subtracts the
+    pocket centroid from every coordinate and returns float32
+    coordinates. Translation is expected here: the centered coordinates
+    should have mean approximately zero. Translation must not distort
+    geometry, so the script verifies that every pairwise interatomic
+    distance is unchanged within numerical tolerance.
+
+6.  **Cross-artifact checks connect the loader result back to
+    provenance.** The script verifies that the complete pocket
+    identifier survives every pre-normalization wrapper and that it
+    joins to `sidecars/pockets.parquet`. It also confirms that the
+    original coordinate array is float32. These checks ensure that a
+    model result can still be traced to the authoritative sidecar row.
+
+If every assertion passes, the command prints a JSON result, atomically
+writes `reports/drugclip_loader_integration.json`, computes that
+report’s SHA-256, and updates `manifest.json` with the integration-test
+status and artifact checksum. Thus, unlike `pytest` or `validate`, this
+compatibility command intentionally modifies the completed run’s reports
+and manifest.
+
+This test stops after the loader wrappers that can remove, reorder,
+rename, or translate pocket data. It does **not** run dictionary
+tokenization, BOS/EOS insertion, padding, the neural-network checkpoint,
+or an embedding comparison. Checkpoint encoding additionally requires
+the active BioSensIA-DC model runtime and CUDA because the linked
+DrugCLIP retrieval encoder moves batches to CUDA. Before promoting a
+full library, run a target-fishing smoke query in that environment as a
+separate end-to-end model test. The manifest’s contract fingerprint
+makes the exact task code, loader code, helper, dictionary, and
+checkpoint used for that promotion auditable.
+
+# Troubleshooting
+
+**A contract file is missing.** Verify the `BioSensIA-DC` link and run
+`check-drugclip-contract`. The loader fingerprint covers
+`lmdb_dataset.py`, `affinity_dataset.py`, `remove_hydrogen_dataset.py`,
+`cropping_dataset.py`, and `normalize_dataset.py`, not a nonexistent
+combined loader module.
+
+**A run directory already exists.** Use `--resume` only when continuing
+the identical full identity. Use `--overwrite-run` to preserve the
+previous directory as a timestamped backup before rebuilding.
+
+**A pocket is absent from the default LMDB.** Inspect
+`complexes.parquet`, `pockets.parquet`, and `processing_issues.parquet`.
+Tier C is usable sidecar geometry but is deliberately excluded from the
+default A+B profile; export `all-usable` explicitly if appropriate.
+
+**RCSB is unavailable.** Re-run offline. Mapping and bibliography can
+remain unavailable without changing or rejecting geometry.
+
+**DrugCLIP crops or removes atoms.** This indicates a contract
+violation: exported records must contain at most `max_pocket_atoms`, no
+`H`, dictionary-supported element tokens, and loader-stable token
+strings. Run `validate` and compare the recorded contract hashes with
+the active BioSensIA-DC checkout.
+
+**`uv` cannot write its user cache in a restricted environment.** Set a
+task-specific temporary cache for that invocation, for example
+`UV_CACHE_DIR=/tmp/candidate-pocket-uv-cache`; do not change project
+configuration or reuse system home variables.
