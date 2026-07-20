@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "candidate-pockets-pdbbind"
 version = "0.1.0"
@@ -34,6 +38,12 @@ dev = [
 
 [project.scripts]
 biosensia-pocket-library = "biosensia_pocket_library.cli:main"
+
+[tool.uv]
+package = true
+
+[tool.setuptools]
+packages = ["biosensia_pocket_library"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
