@@ -1,0 +1,37 @@
+[project]
+name = "candidate-pockets-pdbbind"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "numpy>=1.26,<2",
+  "rdkit==2022.9.5",
+  "lmdb>=2.2.0",
+  "tokenizers>=0.23.1",
+  "ipython>=9.13.0",
+  "scikit-learn>=1.8.0",
+  "pandas>=3.0.2",
+  "ninja>=1.13.0",
+  "biopandas>=0.5.1",
+  "polars>=1.40.1",
+  "tqdm>=4.67.3",
+  "marimo>=0.23.6",
+  "altair>=6.1.0",
+  "vegafusion>=2.0.3",
+  "vl-convert-python>=1.9.0.post1",
+  "pyarrow>=24.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
+
+[tool.marimo.runtime]
+pythonpath = ["."]
