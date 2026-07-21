@@ -2,10 +2,17 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from rdkit import Chem
+from rdkit.Geometry import Point3D
 
 from biosensia_pocket_library.config import load_config
 from biosensia_pocket_library.exceptions import ParseError
-from biosensia_pocket_library.ligand_parser import _canonical_content_hash, parse_ligand
+from biosensia_pocket_library.ligand_parser import (
+    _canonical_content_hash,
+    _connectivity_matches,
+    _coordinate_element_mapping,
+    parse_ligand,
+)
 
 
 def _sdf(x: float = 0.0) -> str:
@@ -34,3 +41,22 @@ def test_multiple_sdf_records_are_rejected(tmp_path: Path):
     config = load_config(project_root=tmp_path)
     with pytest.raises(ParseError, match="multiple SDF records"):
         parse_ligand("complex", path, None, config)
+
+
+def test_coordinate_mapping_handles_permuted_symmetric_atoms():
+    molecule = Chem.AddHs(Chem.MolFromSmiles("CC"))
+    conformer = Chem.Conformer(molecule.GetNumAtoms())
+    for index in range(molecule.GetNumAtoms()):
+        conformer.SetAtomPosition(index, Point3D(float(index), float(index % 3), 0.0))
+    molecule.AddConformer(conformer)
+    order = list(reversed(range(molecule.GetNumAtoms())))
+    permuted = Chem.RenumberAtoms(molecule, order)
+
+    mapping, ambiguous = _coordinate_element_mapping(molecule, permuted)
+
+    assert mapping is not None
+    assert not ambiguous
+    assert _connectivity_matches(molecule, permuted, mapping)
+    left = np.asarray(molecule.GetConformer().GetPositions())
+    right = np.asarray(permuted.GetConformer().GetPositions())
+    assert np.allclose(left, right[mapping])

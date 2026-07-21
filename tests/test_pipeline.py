@@ -1,11 +1,13 @@
 from pathlib import Path
 
 import json
+import threading
+import time
 
 import pyarrow.parquet as pq
 
 from biosensia_pocket_library.config import load_config
-from biosensia_pocket_library.pipeline import build_library
+from biosensia_pocket_library.pipeline import _bounded_thread_map, build_library
 from biosensia_pocket_library.validation import validate_run
 
 
@@ -87,3 +89,20 @@ def test_worker_count_does_not_change_logical_outputs(tmp_path: Path):
     assert {key: value["logical_sha256"] for key, value in manifests[0]["sidecar_artifacts"].items()} == {
         key: value["logical_sha256"] for key, value in manifests[1]["sidecar_artifacts"].items()
     }
+
+
+def test_bounded_thread_map_avoids_order_blocking_and_eager_submission():
+    started = []
+    lock = threading.Lock()
+
+    def operation(value):
+        with lock:
+            started.append(value)
+        time.sleep(0.15 if value == 0 else 0.01)
+        return value
+
+    results = _bounded_thread_map(operation, [(value,) for value in range(10)], workers=3)
+    first = next(results)
+    assert first in {1, 2}
+    assert len(started) <= 3
+    assert sorted([first, *results]) == list(range(10))

@@ -6,7 +6,7 @@ import dataclasses
 import csv
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -107,25 +107,18 @@ def build_library(config: BuildConfig, *, pdb_ids: Iterable[str] | None = None, 
     source_hash_by_id = {row["source_file_id"]: row["sha256"] for row in source_rows}
     arguments = [(record, discovery[record.complex_id], config, dictionary, source_hash_by_id)
                  for record in selected]
-    if config.pipeline.workers > 1:
-        executor = ThreadPoolExecutor(max_workers=config.pipeline.workers, thread_name_prefix="pocket")
-        results = executor.map(lambda values: _process_record_geometry(*values), arguments)
-    else:
-        executor = None
-        results = map(lambda values: _process_record_geometry(*values), arguments)
-    try:
-        for complex_row, local_rows, local_issues, event in track(
-            results, description="Extracting candidate pockets", total=len(selected), enabled=progress
-        ):
-            rows["complexes"].append(complex_row)
-            for name, values in local_rows.items():
-                rows[name].extend(values)
-            issues.extend(local_issues)
-            chains_by_pdb[complex_row["pdb_id"]].extend(local_rows.get("protein_chains", []))
-            logger.emit(**event)
-    finally:
-        if executor is not None:
-            executor.shutdown(wait=True, cancel_futures=config.pipeline.fail_fast)
+    results = (_bounded_thread_map(_process_record_geometry, arguments, config.pipeline.workers)
+               if config.pipeline.workers > 1 else
+               map(lambda values: _process_record_geometry(*values), arguments))
+    for complex_row, local_rows, local_issues, event in track(
+        results, description="Extracting candidate pockets", total=len(selected), enabled=progress
+    ):
+        rows["complexes"].append(complex_row)
+        for name, values in local_rows.items():
+            rows[name].extend(values)
+        issues.extend(local_issues)
+        chains_by_pdb[complex_row["pdb_id"]].extend(local_rows.get("protein_chains", []))
+        logger.emit(**event)
     # Optional RCSB enrichment remains downstream of and cannot modify geometry decisions/hashes.
     if config.rcsb.download_mmcif:
         try:
@@ -303,6 +296,42 @@ def _select(records, pdb_ids, limit, year_from, year_to):
               and (year_to is None or record.release_year <= year_to)]
     values.sort(key=lambda record: record.pdb_id)
     return values[:limit] if limit is not None else values
+
+
+def _bounded_thread_map(operation, arguments, workers):
+    """Run at most ``workers`` calls and yield them as they complete.
+
+    ``Executor.map`` eagerly submits the whole input and yields in input order. A
+    slow early complex can therefore retain every later completed result in RAM.
+    This scheduler bounds both running and completed futures and has no
+    head-of-line blocking.
+    """
+    iterator = iter(arguments)
+    executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pocket")
+    pending: set[Future] = set()
+
+    def submit_one() -> bool:
+        try:
+            values = next(iterator)
+        except StopIteration:
+            return False
+        pending.add(executor.submit(operation, *values))
+        return True
+
+    try:
+        for _ in range(workers):
+            if not submit_one():
+                break
+        while pending:
+            completed, pending = wait(pending, return_when=FIRST_COMPLETED)
+            # Future completion order is immaterial: sidecars are canonically sorted.
+            for future in completed:
+                yield future.result()
+                submit_one()
+    finally:
+        for future in pending:
+            future.cancel()
+        executor.shutdown(wait=True, cancel_futures=True)
 
 
 def _process_record_geometry(record, info, config, dictionary, source_hash_by_id):

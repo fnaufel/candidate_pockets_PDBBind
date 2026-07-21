@@ -8,7 +8,9 @@ from pathlib import Path
 
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import Descriptors, rdMolDescriptors
+from rdkit.Chem import Descriptors, rdMolDescriptors, rdinchi
+from scipy.optimize import linear_sum_assignment
+from scipy.spatial.distance import cdist
 
 from .config import BuildConfig
 from .exceptions import ParseError
@@ -175,26 +177,45 @@ def _compare_formats(attempts: list[_Attempt]) -> dict:
     mapping_ambiguity = False
     mapping_cap_exhausted = False
     if all(metrics.values()):
-        try:
-            matches = mol2.GetSubstructMatches(sdf, uniquify=False, maxMatches=1025)
-        except Exception:
-            matches = ()
-        mapping_cap_exhausted = len(matches) > 1024
-        matches = matches[:1024]
-        if matches:
+        mapping, mapping_ambiguity = _coordinate_element_mapping(sdf, mol2)
+        if mapping is not None and _connectivity_matches(sdf, mol2, mapping):
             left = np.asarray(sdf.GetConformer().GetPositions(), dtype=np.float64)
             right = np.asarray(mol2.GetConformer().GetPositions(), dtype=np.float64)
-            candidates = []
-            for mapping in matches:
-                value = float(np.sqrt(np.mean(np.sum((left - right[list(mapping)]) ** 2, axis=1))))
-                candidates.append((value, tuple(mapping)))
-            candidates.sort()
-            rmsd = candidates[0][0]
-            mapping_ambiguity = len(candidates) > 1 and np.isclose(candidates[0][0], candidates[1][0], atol=1e-12)
+            rmsd = float(np.sqrt(np.mean(np.sum((left - right[mapping]) ** 2, axis=1))))
     equivalent = all(metrics.values()) and rmsd is not None and rmsd <= 0.1
     return {"status": "equivalent" if equivalent else "disagreement", "coordinate_rmsd": rmsd,
             "mapping_ambiguity": mapping_ambiguity, "mapping_cap_exhausted": mapping_cap_exhausted,
             **metrics}
+
+
+def _coordinate_element_mapping(left: Chem.Mol, right: Chem.Mol) -> tuple[np.ndarray | None, bool]:
+    """Map equal elements by minimum coordinate distance in polynomial time."""
+    left_coordinates = np.asarray(left.GetConformer().GetPositions(), dtype=np.float64)
+    right_coordinates = np.asarray(right.GetConformer().GetPositions(), dtype=np.float64)
+    mapping = np.full(left.GetNumAtoms(), -1, dtype=np.int64)
+    ambiguous = False
+    atomic_numbers = sorted({atom.GetAtomicNum() for atom in left.GetAtoms()})
+    for atomic_number in atomic_numbers:
+        left_indices = np.asarray([atom.GetIdx() for atom in left.GetAtoms()
+                                   if atom.GetAtomicNum() == atomic_number], dtype=np.int64)
+        right_indices = np.asarray([atom.GetIdx() for atom in right.GetAtoms()
+                                    if atom.GetAtomicNum() == atomic_number], dtype=np.int64)
+        if len(left_indices) != len(right_indices):
+            return None, False
+        costs = cdist(left_coordinates[left_indices], right_coordinates[right_indices], metric="sqeuclidean")
+        rows, columns = linear_sum_assignment(costs)
+        mapping[left_indices[rows]] = right_indices[columns]
+        if costs.shape[1] > 1:
+            ordered = np.sort(costs, axis=1)
+            ambiguous |= bool(np.any(np.isclose(ordered[:, 0], ordered[:, 1], atol=1e-12, rtol=0.0)))
+    return (mapping if np.all(mapping >= 0) else None), ambiguous
+
+
+def _connectivity_matches(left: Chem.Mol, right: Chem.Mol, mapping: np.ndarray) -> bool:
+    left_edges = {tuple(sorted((int(mapping[bond.GetBeginAtomIdx()]), int(mapping[bond.GetEndAtomIdx()]))))
+                  for bond in left.GetBonds()}
+    right_edges = {tuple(sorted((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()))) for bond in right.GetBonds()}
+    return left_edges == right_edges
 
 
 def _chemistry(mol: Chem.Mol, elements: list[str], sanitization_status: str) -> dict:
@@ -204,7 +225,9 @@ def _chemistry(mol: Chem.Mol, elements: list[str], sanitization_status: str) -> 
     try:
         smiles = Chem.MolToSmiles(mol, isomericSmiles=False)
         isomeric = Chem.MolToSmiles(mol, isomericSmiles=True)
-        inchi = Chem.MolToInchi(mol)
+        # The high-level wrapper logs normalization warnings even with
+        # ``logLevel=None``. Retain its result while keeping tqdm readable.
+        inchi, _return_code, _message, _logs, _aux = rdinchi.MolToInchi(mol, "")
         inchikey = Chem.InchiToInchiKey(inchi) if inchi else None
     except Exception:
         smiles = isomeric = inchi = inchikey = None
