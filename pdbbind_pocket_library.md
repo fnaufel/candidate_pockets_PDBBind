@@ -540,10 +540,13 @@ Use `finalize` when a build completed extraction and sidecar writing but
 failed during LMDB export, validation, or reporting. It does not repeat
 source inventory, geometry extraction, RCSB downloads, or enrichment. It
 removes only abandoned hidden LMDB temporary files, recreates the
-required `default` LMDB, updates its membership sidecar, validates the
-complete run, regenerates reports, records final counts and stage
-markers, refreshes the artifact inventory, and sets a completion
-timestamp and `status: complete` atomically.
+required `default` LMDB, updates its membership sidecar, repairs legacy
+duplicate affinity-reference candidates by aggregating their evidence,
+validates the complete run, regenerates reports, records final counts
+and stage markers, refreshes the artifact inventory, and sets a
+completion timestamp and `status: complete` atomically. Only
+`lmdb_records.parquet` and `affinity_reference_links.parquet` are
+rewritten; large geometry sidecars are checksummed but not recompressed.
 
 The command preserves the original run ID,
 source/selection/configuration fingerprints, legacy DrugCLIP identity,
@@ -849,6 +852,12 @@ previous directory as a timestamped backup before rebuilding.
 `--overwrite-run` and do not repeat the expensive build. Run
 `finalize --run-dir <run-id>`. It repairs the required default LMDB and
 final publication metadata while preserving the original identity.
+
+**Validation reports duplicate `affinity_reference_links`.** Older
+builds could emit the same measurement/citation candidate once per RCSB
+source link or role. Current builds aggregate those observations.
+Running `finalize` applies the same deterministic repair to an existing
+sidecar and then revalidates it.
 
 **A pocket is absent from the default LMDB.** Inspect
 `complexes.parquet`, `pockets.parquet`, and `processing_issues.parquet`.

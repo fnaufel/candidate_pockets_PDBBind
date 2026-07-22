@@ -1905,6 +1905,8 @@ Author rows from conflicting sources must remain source-qualified. Their key is 
 
 One row per binding-measurement/reference candidate.
 
+The primary key is `(measurement_id, citation_id)`. If RCSB or another provider exposes the same citation through multiple source-qualified PDB citation links or roles, aggregate those observations into one candidate: union and sort `evidence_sources`, retain the strongest supported candidate status/confidence, and preserve distinct evidence notes deterministically. Do not emit one affinity candidate per upstream link.
+
 ```text
 measurement_id
 complex_id

@@ -10,8 +10,9 @@ from .drugclip_contract import verify_drugclip_contract
 from .lmdb_export import export_lmdb
 from .manifest import complete_stage, git_identity, project_code_fingerprint, utc_now, write_manifest
 from .pipeline import _artifact_inventory
+from .reference_links import merge_affinity_reference_links
 from .reporting import generate_reports
-from .sidecars import read_sidecar, write_sidecars
+from .sidecars import describe_sidecars, read_sidecar, write_sidecars
 from .validation import validate_run
 
 
@@ -48,10 +49,18 @@ def finalize_run(run_dir: Path, config: BuildConfig, *, progress: bool = True) -
         run_dir, config, contract, "default", overwrite=True, progress=progress
     )
     rows = {name: read_sidecar(run_dir / "sidecars", name) for name in _table_names()}
+    rows["affinity_reference_links"] = merge_affinity_reference_links(rows["affinity_reference_links"])
     rows["lmdb_records"] = [
         row for row in rows["lmdb_records"] if row["library_profile"] != "default"
     ] + lmdb_rows
-    sidecar_results = write_sidecars(run_dir / "sidecars", rows, progress=progress)
+    changed_sidecars = write_sidecars(
+        run_dir / "sidecars", rows, progress=progress,
+        table_names={"affinity_reference_links", "lmdb_records"},
+    )
+    sidecar_results = _existing_sidecar_results(manifest, run_dir)
+    sidecar_results.update(changed_sidecars)
+    if set(sidecar_results) != set(_table_names()):
+        sidecar_results = describe_sidecars(run_dir / "sidecars", rows)
     manifest.setdefault("lmdb_profiles", {})["default"] = {
         **metadata, "path": Path(metadata["path"]).relative_to(run_dir).as_posix()
     }
@@ -116,6 +125,14 @@ def _relative_sidecar_results(results: dict, run_dir: Path) -> dict:
         name: {**item, "path": Path(item["path"]).relative_to(run_dir).as_posix()}
         for name, item in results.items()
     }
+
+
+def _existing_sidecar_results(manifest: dict, run_dir: Path) -> dict:
+    results = {}
+    for name, item in manifest.get("sidecar_artifacts", {}).items():
+        path = Path(item["path"])
+        results[name] = {**item, "path": (run_dir / path).as_posix() if not path.is_absolute() else path.as_posix()}
+    return results
 
 
 def _verify_library_contract_compatible(manifest: dict, current: dict) -> None:

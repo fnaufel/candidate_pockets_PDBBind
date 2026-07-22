@@ -30,6 +30,7 @@ from .pocket_extractor import distance_statistics, extract_pocket
 from .progress import file_progress, track
 from .protein_parser import parse_protein
 from .quality import classify_geometry
+from .reference_links import merge_affinity_reference_links
 from .rcsb import download_mmcif_files, enrich_from_mmcif
 from .reporting import generate_reports
 from .scrub import scrub
@@ -224,6 +225,7 @@ def build_library(config: BuildConfig, *, pdb_ids: Iterable[str] | None = None, 
             if pocket_row["complex_id"] == record.complex_id:
                 pocket_row["bibliography_quality"] = bibliography_quality
     _apply_reference_overrides(rows, config, issues)
+    rows["affinity_reference_links"] = merge_affinity_reference_links(rows["affinity_reference_links"])
     rows["processing_issues"] = [_issue_row(issue) for issue in issues]
     warning_counts = Counter(issue.complex_id for issue in issues if issue.complex_id and issue.severity == "warning")
     error_counts = Counter(issue.complex_id for issue in issues if issue.complex_id and issue.severity in {"error", "fatal"})

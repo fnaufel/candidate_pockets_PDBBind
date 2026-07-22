@@ -14,10 +14,15 @@ from .progress import track
 from .schemas import TABLES
 
 
-def write_sidecars(directory: Path, rows_by_table: dict[str, list[dict[str, Any]]], *, progress: bool = True) -> dict[str, dict]:
+def write_sidecars(directory: Path, rows_by_table: dict[str, list[dict[str, Any]]], *, progress: bool = True,
+                   table_names: set[str] | None = None) -> dict[str, dict]:
     directory.mkdir(parents=True, exist_ok=True)
     results: dict[str, dict] = {}
-    for name in track(sorted(TABLES), description="Writing sidecars", total=len(TABLES), enabled=progress):
+    names = sorted(TABLES if table_names is None else table_names)
+    unknown = set(names) - set(TABLES)
+    if unknown:
+        raise ValueError(f"Unknown sidecar tables: {sorted(unknown)}")
+    for name in track(names, description="Writing sidecars", total=len(names), enabled=progress):
         rows = rows_by_table.get(name, [])
         spec = TABLES[name]
         canonical = sorted(rows, key=lambda row: tuple(_sort_value(row.get(key)) for key in spec.sort_by))
@@ -38,6 +43,20 @@ def write_sidecars(directory: Path, rows_by_table: dict[str, list[dict[str, Any]
                          if field.name not in spec.volatile_columns} for row in canonical]
         results[name] = {"path": destination.as_posix(), "row_count": len(canonical),
                          "sha256": sha256_file(destination), "logical_sha256": canonical_json_hash(logical_rows)}
+    return results
+
+
+def describe_sidecars(directory: Path, rows_by_table: dict[str, list[dict[str, Any]]]) -> dict[str, dict]:
+    """Describe existing sidecars without recompressing their Parquet files."""
+    results = {}
+    for name, spec in TABLES.items():
+        path = directory / f"{name}.parquet"
+        rows = rows_by_table.get(name, [])
+        canonical = sorted(rows, key=lambda row: tuple(_sort_value(row.get(key)) for key in spec.sort_by))
+        logical_rows = [{field.name: row.get(field.name) for field in spec.schema
+                         if field.name not in spec.volatile_columns} for row in canonical]
+        results[name] = {"path": path.as_posix(), "row_count": len(canonical),
+                         "sha256": sha256_file(path), "logical_sha256": canonical_json_hash(logical_rows)}
     return results
 
 
