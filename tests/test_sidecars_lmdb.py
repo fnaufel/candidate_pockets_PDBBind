@@ -1,10 +1,11 @@
 from pathlib import Path
 
+import lmdb
 import numpy as np
 import pyarrow.parquet as pq
 
 from biosensia_pocket_library.config import load_config
-from biosensia_pocket_library.lmdb_export import export_lmdb, validate_lmdb
+from biosensia_pocket_library.lmdb_export import _write_lmdb, export_lmdb, validate_lmdb
 from biosensia_pocket_library.schemas import TABLES
 from biosensia_pocket_library.sidecars import write_sidecars
 
@@ -37,3 +38,18 @@ def test_lmdb_round_trip_from_sidecars(tmp_path: Path):
     rows["lmdb_records"] = lmdb_rows
     write_sidecars(tmp_path / "sidecars", rows, progress=False)
     assert validate_lmdb(tmp_path, "default", config, progress=False) == []
+
+
+def test_auto_sized_lmdb_recovers_from_map_full(tmp_path: Path):
+    path = tmp_path / "retry.lmdb"
+    payloads = [(str(index), bytes([index % 251]) * 5000) for index in range(100)]
+
+    final_size = _write_lmdb(path, payloads, 64 * 1024, auto=True, profile="test", progress=False)
+
+    assert final_size > 64 * 1024
+    environment = lmdb.open(str(path), subdir=False, readonly=True, lock=False)
+    try:
+        with environment.begin() as transaction:
+            assert transaction.stat()["entries"] == len(payloads)
+    finally:
+        environment.close()

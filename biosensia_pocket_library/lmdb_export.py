@@ -61,31 +61,28 @@ def export_lmdb(
         raise FileExistsError(f"Refusing to overwrite {destination}")
     temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
     temporary.unlink(missing_ok=True)
-    env = lmdb.open(str(temporary), subdir=False, map_size=map_size, lock=False,
-                    sync=True, metasync=True, max_dbs=1)
     rows: list[dict] = []
     logical = hashlib.sha256()
+    for index, (pocket_id, value) in enumerate(payloads):
+        key = str(index).encode("ascii")
+        framed = length_frame((key, value))
+        logical.update(framed)
+        pocket = pocket_rows[pocket_id]
+        rows.append({"library_profile": profile, "lmdb_path": destination.relative_to(run_dir).as_posix(),
+                     "record_index": index, "lmdb_key": key.decode("ascii"),
+                     "pocket_instance_id": pocket_id,
+                     "pocket_geometry_content_hash": pocket["pocket_geometry_content_hash"],
+                     "pocket_derivation_hash": pocket["pocket_derivation_hash"],
+                     "atom_count": len(pickle.loads(value)["pocket_atoms"]),
+                     "serialized_record_sha256": sha256_bytes(value),
+                     "logical_record_sha256": sha256_bytes(framed)})
     try:
-        with env.begin(write=True) as transaction:
-            for index, (pocket_id, value) in enumerate(track(payloads, description=f"Exporting LMDB {profile}",
-                                                             total=len(payloads), enabled=progress)):
-                key = str(index).encode("ascii")
-                if not transaction.put(key, value, overwrite=False):
-                    raise RuntimeError(f"Duplicate LMDB key {key!r}")
-                framed = length_frame((key, value))
-                logical.update(framed)
-                pocket = pocket_rows[pocket_id]
-                rows.append({"library_profile": profile, "lmdb_path": destination.relative_to(run_dir).as_posix(),
-                             "record_index": index, "lmdb_key": key.decode("ascii"),
-                             "pocket_instance_id": pocket_id,
-                             "pocket_geometry_content_hash": pocket["pocket_geometry_content_hash"],
-                             "pocket_derivation_hash": pocket["pocket_derivation_hash"], "atom_count": len(pickle.loads(value)["pocket_atoms"]),
-                             "serialized_record_sha256": sha256_bytes(value), "logical_record_sha256": sha256_bytes(framed)})
-        env.sync()
+        map_size = _write_lmdb(temporary, payloads, map_size, auto=config.lmdb.map_size == "auto",
+                               profile=profile, progress=progress)
+        _validate_lmdb_file(temporary, rows, dictionary, config.pocket.max_pocket_atoms, progress=progress)
+        os.replace(temporary, destination)
     finally:
-        env.close()
-    _validate_lmdb_file(temporary, rows, dictionary, config.pocket.max_pocket_atoms, progress=progress)
-    os.replace(temporary, destination)
+        temporary.unlink(missing_ok=True)
     metadata = {
         "profile_name": profile, "filter_ast": {"column": "geometry_quality_tier", "operator": "in",
                                                   "values": list(definition["tiers"])},
@@ -168,10 +165,47 @@ def _validate_record_fields(name, atoms, coordinates, dictionary, max_atoms):
 def _map_size(payloads, config):
     if isinstance(config.lmdb.map_size, int):
         return config.lmdb.map_size
-    raw = sum(len(value) + len(str(index)) + 64 for index, (_, value) in enumerate(payloads)) + 1_048_576
-    size = int(raw * (1 + config.lmdb.map_size_headroom_fraction))
     page = 4096
+    # LMDB stores large values in page-aligned overflow pages; counting only
+    # serialized bytes substantially underestimates the physical map.
+    page_footprint = sum(
+        ((len(value) + len(str(index)) + 32 + page - 1) // page) * page
+        for index, (_, value) in enumerate(payloads)
+    )
+    branch_pages = ((len(payloads) + 99) // 100) * page
+    raw = page_footprint + branch_pages + 1_048_576
+    size = int(raw * (1 + config.lmdb.map_size_headroom_fraction))
     return max(16 * page, ((size + page - 1) // page) * page)
+
+
+def _write_lmdb(path, payloads, map_size, *, auto, profile, progress):
+    """Write atomically, growing and restarting only an automatically sized map."""
+    attempt = 1
+    while True:
+        path.unlink(missing_ok=True)
+        env = lmdb.open(str(path), subdir=False, map_size=map_size, lock=False,
+                        sync=True, metasync=True, max_dbs=1)
+        try:
+            description = f"Exporting LMDB {profile}"
+            if attempt > 1:
+                description += f" (retry {attempt}, {map_size // (1024 * 1024)} MiB map)"
+            with env.begin(write=True) as transaction:
+                for index, (_, value) in enumerate(track(payloads, description=description,
+                                                         total=len(payloads), enabled=progress)):
+                    key = str(index).encode("ascii")
+                    if not transaction.put(key, value, overwrite=False):
+                        raise RuntimeError(f"Duplicate LMDB key {key!r}")
+            env.sync()
+            return map_size
+        except lmdb.MapFullError as error:
+            if not auto:
+                raise lmdb.MapFullError(
+                    f"Configured LMDB map_size={map_size} is too small; increase lmdb.map_size"
+                ) from error
+            map_size = max(map_size * 2, map_size + 16 * 1024 * 1024)
+            attempt += 1
+        finally:
+            env.close()
 
 
 def _hash_output(path: Path, progress: bool) -> str:
