@@ -106,12 +106,14 @@ def main() -> int:
             "atom_count": len(after_crop["pocket_atoms"]),
             "checks": checks,
             "biosensia_commit": manifest["drugclip_contract"].get("biosensia_commit"),
-            "drugclip_contract_fingerprint": manifest["drugclip_contract_fingerprint"],
+            "drugclip_library_contract_fingerprint": (
+                manifest.get("drugclip_library_contract_fingerprint")
+                or manifest.get("drugclip_contract_fingerprint")
+            ),
             "task_sha256": manifest["drugclip_contract"].get("task_sha256"),
             "loader_sha256": manifest["drugclip_contract"].get("loader_sha256"),
             "helper_sha256": manifest["drugclip_contract"].get("helper_sha256"),
             "dictionary_sha256": manifest["drugclip_contract"].get("dictionary_sha256"),
-            "checkpoint_sha256": manifest["drugclip_contract"].get("checkpoint_sha256"),
             "checkpoint_encoding_status": "not_run_by_loader_contract_test",
         }
         destination = run_dir / "reports/drugclip_loader_integration.json"

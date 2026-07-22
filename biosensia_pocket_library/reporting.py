@@ -40,7 +40,9 @@ def generate_reports(run_dir: Path, manifest: dict) -> dict[str, dict]:
         "reference_status_counts": dict(sorted(Counter(row["reference_status"] for row in adjudications).items())),
         "lmdb_profile_counts": dict(sorted(Counter(row["library_profile"] for row in lmdb_rows).items())),
         "source_fingerprint": manifest["source_fingerprint"],
-        "drugclip_contract_fingerprint": manifest["drugclip_contract_fingerprint"],
+        "drugclip_library_contract_fingerprint": manifest.get(
+            "drugclip_library_contract_fingerprint", manifest.get("drugclip_contract_fingerprint")
+        ),
         "logical_digest_excluded_columns": {
             "source_files": ["modified_time_utc", "downloaded_at_utc"],
             "processing_issues": ["created_at_utc"],

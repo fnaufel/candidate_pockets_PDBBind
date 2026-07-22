@@ -96,7 +96,8 @@ def export_lmdb(
         "lmdb_logical_sha256": logical.hexdigest(), "map_size": map_size,
         "dictionary_sha256": contract.get("dictionary_sha256"), "task_sha256": contract.get("task_sha256"),
         "loader_sha256": contract.get("loader_sha256"), "helper_sha256": contract.get("helper_sha256"),
-        "checkpoint_sha256": contract.get("checkpoint_sha256"),
+        "drugclip_library_contract_fingerprint": contract.get("drugclip_library_contract_fingerprint",
+                                                               contract.get("drugclip_contract_fingerprint")),
         "cache_action": f"Namespace or invalidate BioSensIA-DC embedding cache by {logical.hexdigest()}",
     }
     profile_path = destination.with_suffix(destination.suffix + ".profile.json")

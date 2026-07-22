@@ -31,7 +31,7 @@ def test_lmdb_round_trip_from_sidecars(tmp_path: Path):
                              "retained_after_crop": True, "export_order": 0}]
     write_sidecars(tmp_path / "sidecars", rows, progress=False)
     contract = {key: "hash" for key in ("dictionary_sha256", "task_sha256", "loader_sha256",
-                                         "helper_sha256", "checkpoint_sha256")}
+                                         "helper_sha256", "drugclip_library_contract_fingerprint")}
     metadata, lmdb_rows = export_lmdb(tmp_path, config, contract, progress=False)
     assert metadata["record_count"] == 1
     assert lmdb_rows[0]["pocket_instance_id"] == pocket_id

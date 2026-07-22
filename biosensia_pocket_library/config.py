@@ -177,9 +177,12 @@ class BuildConfig:
 
     @property
     def operational_hash(self) -> str:
+        paths = self.as_dict()["paths"]
+        # Encoder selection is recorded configuration, not a library operation.
+        paths.pop("drugclip_checkpoint", None)
         return canonical_json_hash({
             "workers": self.pipeline.workers, "fail_fast": self.pipeline.fail_fast,
-            "progress": self.pipeline.progress, "paths": self.as_dict()["paths"],
+            "progress": self.pipeline.progress, "paths": paths,
             "rcsb_network": {"timeout_seconds": self.rcsb.timeout_seconds,
                              "maximum_retries": self.rcsb.maximum_retries,
                              "requests_per_second": self.rcsb.requests_per_second,

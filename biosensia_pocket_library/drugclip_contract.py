@@ -1,4 +1,4 @@
-"""Verification and fingerprinting of the linked DrugCLIP contract."""
+"""Verification and fingerprinting of the linked DrugCLIP library contract."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ def verify_drugclip_contract(config: BuildConfig, *, progress: bool = True) -> d
         raise SourceIntegrityError(f"DrugCLIP directory not found: {drugclip}")
     candidates = {
         "dictionary": config.paths.drugclip_dictionary,
-        "checkpoint": config.paths.drugclip_checkpoint,
         "task": drugclip / "unimol/tasks/drugclip.py",
         "helper": (biosensia / "lmdb_helpers.py") if biosensia else None,
     }
@@ -53,12 +52,23 @@ def verify_drugclip_contract(config: BuildConfig, *, progress: bool = True) -> d
         link_path = drugclip.relative_to(config.project_root).as_posix()
     except ValueError:
         link_path = drugclip.as_posix()
-    result = {"link_path": link_path, "biosensia_commit": revision,
-              "biosensia_dirty": dirty, "dictionary_tokens": sorted(tokens), **hashes}
+    checkpoint_path = config.paths.drugclip_checkpoint
+    try:
+        checkpoint_path_text = checkpoint_path.relative_to(config.project_root).as_posix() if checkpoint_path else None
+    except ValueError:
+        checkpoint_path_text = checkpoint_path.as_posix() if checkpoint_path else None
+    result = {"contract_schema_version": "2", "link_path": link_path,
+              "biosensia_commit": revision, "biosensia_dirty": dirty,
+              "dictionary_tokens": sorted(tokens), **hashes,
+              "encoder_checkpoint": {"configured_path": checkpoint_path_text,
+                                      "sha256": None, "verification_status": "not_evaluated"}}
     fingerprint_fields = {key: result.get(key) for key in (
-        "biosensia_commit", "biosensia_dirty", "task_sha256", "loader_sha256",
-        "helper_sha256", "dictionary_sha256", "checkpoint_sha256")}
-    result["drugclip_contract_fingerprint"] = canonical_json_hash(fingerprint_fields)
+        "task_sha256", "loader_sha256", "helper_sha256", "dictionary_sha256")}
+    fingerprint_fields["contract_schema_version"] = result["contract_schema_version"]
+    fingerprint = canonical_json_hash(fingerprint_fields)
+    result["drugclip_library_contract_fingerprint"] = fingerprint
+    # Stable alias retained because legacy manifests and readers use this name.
+    result["drugclip_contract_fingerprint"] = fingerprint
     return result
 
 

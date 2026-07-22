@@ -113,10 +113,14 @@ Before extraction or export, a `check-drugclip-contract` stage must resolve the 
 
 * the resolved checkout path;
 * the checkout Git commit and dirty state;
-* SHA-256 checksums of the active task, dataset wrappers, dictionary, checkpoint, and BioSensIA LMDB helper;
-* the configured maximum pocket size, dictionary path, checkpoint path, and coordinate-normalization behavior.
+* SHA-256 checksums of the active task, dataset wrappers, dictionary, and BioSensIA LMDB helper;
+* the configured maximum pocket size, dictionary path, optional checkpoint path, and coordinate-normalization behavior.
 
-A missing or broken DrugCLIP link blocks compatibility validation and LMDB export, but not PDBbind-only inventory and geometry sidecars. Derive the BioSensIA-DC root from the resolved target when possible and verify `lmdb_helpers.py`; otherwise require `biosensia_root`. A missing checkpoint blocks encoder integration and final acceptance, but does not block schema-valid LMDB serialization when the loader, helper, and dictionary are available.
+A missing or broken DrugCLIP link blocks compatibility validation and LMDB export, but not PDBbind-only inventory and geometry sidecars. Derive the BioSensIA-DC root from the resolved target when possible and verify `lmdb_helpers.py`; otherwise require `biosensia_root`. The checkpoint is not read or hashed during candidate-library construction: it cannot change pocket geometry, sidecars, or LMDB bytes. A missing checkpoint blocks only the separate encoder integration test or embedding generation.
+
+Separate the **library contract** from the **encoder contract**. The versioned library contract covers only the task, loader, helper, and dictionary files that define or validate the exported interface. Record the linked checkout commit and dirty state as provenance, but do not include them in the library fingerprint because unrelated checkout changes cannot affect the library when the relevant files have identical hashes. The encoder contract combines a completed library or LMDB logical fingerprint with the exact checkpoint hash and must be created only by a command that actually loads, validates, or uses that checkpoint.
+
+The configured checkpoint path may remain in resolved configuration for a later encoder command, but it participates in neither the library semantic hash nor the library operational hash.
 
 The specification-review baseline is BioSensIA-DC commit `01c79cedb37379cf4d70beb9eb309fdf75518bd5`. The local linked dictionary at that revision contains special tokens plus `C`, `N`, `O`, `S`, and `H`. Runtime validation must still use the actual linked revision and hashes rather than assuming this baseline remains current.
 
@@ -272,7 +276,7 @@ data/
             └── checkpoints/
 ```
 
-The `<run_id>` must include short semantic-configuration, source-fingerprint, selection-fingerprint, and DrugCLIP-contract hashes:
+The `<run_id>` must include short semantic-configuration, source-fingerprint, selection-fingerprint, and DrugCLIP-library-contract hashes:
 
 ```text
 pb20-v24p-20250804-v1-<semantic_config_hash_8>-<source_hash_8>-<selection_hash_8>-<contract_hash_8>
@@ -394,7 +398,11 @@ Compute hashes from canonical UTF-8 JSON with recursively sorted object keys, pr
 * `operational_config_hash` over execution-only values such as workers and progress display;
 * `source_fingerprint` over `distribution_id` plus every selected local source-file ID and checksum;
 * `selection_fingerprint` over the canonical sorted selected PDB-ID list and the filter specification that produced it;
-* `drugclip_contract_fingerprint` over the linked revision and task/loader/helper/dictionary hashes; include the checkpoint hash when present but represent an absent checkpoint explicitly.
+* `drugclip_library_contract_fingerprint` over a version tag and the task/loader/helper/dictionary hashes. The legacy alias `drugclip_contract_fingerprint` may be retained for readers, but neither the checkpoint nor whole-checkout revision/dirty state participates.
+
+Changing only the configured checkpoint, or making unrelated changes elsewhere in the linked BioSensIA-DC checkout, must not change the candidate-library run ID. Relevant task/loader/helper/dictionary changes must change the versioned library-contract fingerprint. Checkpoint hashes belong to downstream encoder/embedding artifacts together with the LMDB logical checksum.
+
+Backward compatibility is mandatory. A directory whose manifest predates the versioned library contract may contain only `drugclip_contract_fingerprint` and may embed `checkpoint_sha256` in `drugclip_contract` or LMDB profile metadata. Treat those fields as an opaque legacy run identity and retained provenance: do not rename the directory, rewrite its identity, require the checkpoint to validate it, or reject it because the new field is absent. Commands taking an explicit `--run-dir` (`validate`, `report`, loader verification, and `export-lmdb`) must continue to process such directories. New or re-exported profile metadata may use the new library-contract fields without mutating the legacy top-level identity. New runs must never recreate a legacy checkpoint-coupled identity.
 
 Operational changes may reuse scientific checkpoints when all stage dependency hashes match. Semantic, source, or selection changes may not.
 
@@ -473,6 +481,7 @@ It must contain:
   "source_fingerprint": "...",
   "selection_fingerprint": "...",
   "drugclip_contract_fingerprint": "...",
+  "drugclip_library_contract_fingerprint": "...",
   "started_at_utc": "...",
   "completed_at_utc": null,
   "status": "running",
@@ -487,7 +496,11 @@ It must contain:
     "loader_sha256": "...",
     "helper_sha256": "...",
     "dictionary_sha256": "...",
-    "checkpoint_sha256": null
+    "encoder_checkpoint": {
+      "configured_path": "data/DrugCLIP/checkpoint_best.pt",
+      "sha256": null,
+      "verification_status": "not_evaluated"
+    }
   },
   "dataset": {
     "name": "PDBbind",
@@ -2060,7 +2073,7 @@ Before export:
 4. Record unsupported or lossy elements in sidecars.
 5. Do not silently map elements such as selenium to sulfur.
 6. Permit explicit versioned element mappings only through configuration and assign the appropriate geometry issue/tier.
-7. Include the dictionary, loader, task, and checkpoint SHA-256 values in the manifest and LMDB profile metadata.
+7. Include the dictionary, loader, task, helper, and library-contract SHA-256 values in the manifest and LMDB profile metadata. Do not hash or record a checkpoint as though it affected LMDB serialization.
 
 ---
 
@@ -2171,7 +2184,7 @@ Every profile must have:
 
 The required default profile is geometry Tier A plus Tier B unless configured otherwise. Filters must refer to named, versioned sidecar columns and be parsed by a restricted expression grammar; do not execute arbitrary Python expressions.
 
-Every profile has adjacent `*.profile.json` metadata containing its filter AST, schema versions, record count, physical and logical checksums, dictionary/task/loader/checkpoint hashes, serialization protocol, and source sidecar hashes.
+Every profile has adjacent `*.profile.json` metadata containing its filter AST, schema versions, record count, physical and logical checksums, the versioned library-contract and dictionary/task/loader/helper hashes, serialization protocol, and source sidecar hashes. Encoder checkpoint identity belongs in a separate embedding or encoder-integration artifact keyed to this profile's logical checksum.
 
 BioSensIA-DC pocket embedding caches are not keyed by LMDB content. Overwriting any candidate LMDB must invalidate or namespace the corresponding embedding cache using the LMDB logical checksum. The build/report output must state the required cache action.
 
@@ -2415,7 +2428,7 @@ Verify:
 
 Load the produced LMDB through the actual BioSensIA-DC target-fishing pocket loader.
 
-The integration test must:
+The complete integration coverage has a loader phase (items 1 and 3–7) and a separately runnable encoder phase (items 2 and 8). The loader phase must not require or hash a checkpoint. The encoder phase must hash the checkpoint because it actually uses it. Together the phases must:
 
 1. Load at least one record.
 2. Encode at least one pocket with the configured checkpoint.
@@ -2424,7 +2437,7 @@ The integration test must:
 5. Verify that loader normalization centers coordinates while preserving all pairwise distances.
 6. Verify that the pocket name returned by retrieval is the complete `pocket_instance_id`.
 7. Join that ID to `pockets.parquet`.
-8. Record the linked BioSensIA-DC commit and all contract file/checkpoint/dictionary hashes in the test artifact.
+8. Record the linked BioSensIA-DC commit, library-contract file hashes, exact checkpoint hash, and input LMDB logical checksum in the encoder-test artifact.
 
 ---
 
@@ -2560,7 +2573,7 @@ For a fixed local input and configuration:
 
 The implementation is complete when:
 
-1. The linked BioSensIA-DC contract, dictionary, checkpoint, and helper pass compatibility validation and their revisions/hashes are recorded.
+1. The linked BioSensIA-DC library contract, dictionary, and helper pass compatibility validation and their relevant hashes are recorded; checkpoint validation is required only for encoder integration or embedding artifacts.
 2. A development run for one PDB ID completes from raw files to LMDB.
 3. A full run parses every physical record and reports every unique complex in `INDEX_general_PL.2020R1.lst`.
 4. Every artifact inside the defined checksum boundary has a checksum, and every LMDB has a logical digest.
@@ -2593,7 +2606,8 @@ Implement in the following pull-request-sized stages.
 Implement:
 
 * linked-checkout discovery and revision capture;
-* task/loader/helper/dictionary/checkpoint characterization;
+* task/loader/helper/dictionary characterization and versioned library-contract identity;
+* separate checkpoint characterization only in encoder integration;
 * exact Arrow schema registry;
 * canonical serialization and hash primitives;
 * versioned quality-rule registry.

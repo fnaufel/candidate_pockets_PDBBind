@@ -7,7 +7,9 @@ import time
 import pyarrow.parquet as pq
 
 from biosensia_pocket_library.config import load_config
+from biosensia_pocket_library.drugclip_contract import verify_drugclip_contract
 from biosensia_pocket_library.pipeline import _bounded_thread_map, build_library
+from biosensia_pocket_library.reporting import generate_reports
 from biosensia_pocket_library.validation import validate_run
 
 
@@ -106,3 +108,45 @@ def test_bounded_thread_map_avoids_order_blocking_and_eager_submission():
     assert first in {1, 2}
     assert len(started) <= 3
     assert sorted([first, *results]) == list(range(10))
+
+
+def test_library_contract_does_not_hash_or_depend_on_encoder_checkpoint(tmp_path: Path):
+    _fixture(tmp_path)
+    checkpoint = tmp_path / "BioSensIA-DC/external/DrugCLIP/checkpoint_best.pt"
+    checkpoint.write_bytes(b"first encoder")
+    config = load_config(project_root=tmp_path)
+    alternate_config = load_config(project_root=tmp_path, overrides={
+        "paths.drugclip_checkpoint": tmp_path / "another-checkpoint.pt"
+    })
+
+    first = verify_drugclip_contract(config, progress=False)
+    checkpoint.write_bytes(b"different encoder")
+    second = verify_drugclip_contract(config, progress=False)
+
+    assert first["drugclip_library_contract_fingerprint"] == second["drugclip_library_contract_fingerprint"]
+    assert config.semantic_hash == alternate_config.semantic_hash
+    assert config.operational_hash == alternate_config.operational_hash
+    assert "checkpoint_sha256" not in first
+    assert first["encoder_checkpoint"]["verification_status"] == "not_evaluated"
+
+
+def test_legacy_manifest_remains_valid(tmp_path: Path):
+    _fixture(tmp_path)
+    config = load_config(project_root=tmp_path, overrides={
+        "pipeline.offline": True, "pipeline.progress": False, "rcsb.download_mmcif": False,
+        "pocket.minimum_pocket_atoms_warning": 1,
+    })
+    run_dir = build_library(config, pdb_ids=["1abc"], progress=False)
+    manifest_path = run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("drugclip_library_contract_fingerprint")
+    manifest["drugclip_contract"].pop("drugclip_library_contract_fingerprint")
+    manifest["drugclip_contract"].pop("contract_schema_version")
+    manifest["drugclip_contract"].pop("encoder_checkpoint")
+    manifest["drugclip_contract"]["checkpoint_sha256"] = "legacy-checkpoint-hash"
+    manifest_path.write_text(json.dumps(manifest))
+
+    assert validate_run(run_dir, config, progress=False) == []
+    generate_reports(run_dir, manifest)
+    summary = json.loads((run_dir / "reports/build_summary.json").read_text())
+    assert summary["drugclip_library_contract_fingerprint"] == manifest["drugclip_contract_fingerprint"]
