@@ -1,6 +1,6 @@
 # Building the BioSensIA-DC Candidate Pocket Library
 BioSensIA
-2026-07-20
+2026-07-22
 
 - [Purpose](#purpose)
 - [Implementation map](#implementation-map)
@@ -82,7 +82,7 @@ The principal modules are:
 | `config.py` | Strict TOML loading, path normalization, semantic and operational hashes |
 | `index_parser.py` | Index parsing, binding normalization, duplicate rules |
 | `source_inventory.py` | Deterministic year-directory discovery and source checksums |
-| `drugclip_compatibility.py` | Linked revision and task/loader/helper/dictionary/checkpoint fingerprints |
+| `drugclip_compatibility.py` | Versioned task/loader/helper/dictionary library contract; linked revision as provenance |
 | `ligand_parser.py` | Staged SDF/MOL2 RDKit parsing, chemistry, components, geometry hashes |
 | `protein_parser.py` | [Gemmi](https://gemmi.readthedocs.io/en/latest/) validation, fixed-column atom identity, model and altloc policy |
 | `pocket_extractor.py` | Contact/residue views, deterministic order/crop, content/derivation hashes |
@@ -125,8 +125,10 @@ data/raw/P-L/
 ```
 
 `BioSensIA-DC/external/DrugCLIP` must contain the active `dict_pkt.txt`,
-task, data wrappers, and normally `checkpoint_best.pt`. Furthermore,
-`BioSensIA-DC/lmdb_helpers.py` is part of the fingerprinted contract.
+task, and data wrappers. Furthermore, `BioSensIA-DC/lmdb_helpers.py` is
+part of the fingerprinted library contract. A configured
+`checkpoint_best.pt` is needed only for a separate encoder smoke test or
+embedding generation; library construction neither reads nor hashes it.
 The configured PDBbind root may itself be a deliberate symbolic link;
 arbitrary links encountered elsewhere are not searched.
 
@@ -138,14 +140,16 @@ uv run biosensia-pocket-library check-drugclip-contract \
 ```
 
 This command performs **one part of the build bootstrap**, but not the
-entire bootstrap. It checks the consumer side of the interface: the
-exact BioSensIA-DC revision, DrugCLIP task and loader code, helper code,
-pocket dictionary, and checkpoint that will consume the exported LMDB.
-It streams a byte progress bar while hashing a large checkpoint, then
-reports the BioSensIA-DC Git revision and dirty state, individual
-hashes, the aggregate loader hash, supported dictionary tokens, and the
-full contract fingerprint. It is safe to run independently because it
-only reads and hashes these inputs; it does not create a run directory.
+entire bootstrap. It checks the consumer side of the serialized-library
+interface: DrugCLIP task and loader code, helper code, and pocket
+dictionary. It reports the BioSensIA-DC Git revision and dirty state as
+provenance, individual relevant-file hashes, the aggregate loader hash,
+supported dictionary tokens, and the versioned library-contract
+fingerprint. The revision and dirty state do not enter that fingerprint
+because unrelated checkout changes cannot affect the library when the
+relevant files are unchanged. The configured checkpoint path is reported
+as `not_evaluated`; the checkpoint is not read or hashed. The command is
+safe to run independently because it does not create a run directory.
 
 The complete bootstrap happens automatically at the beginning of `build`
 or `build-sidecars`. In addition to repeating the DrugCLIP contract
@@ -193,8 +197,18 @@ Before creating a run directory, the bootstrap computes:
 - `source_fingerprint` from the distribution identity and selected local
   source IDs/checksums;
 - `selection_fingerprint` from sorted PDB IDs and canonical filters;
-- `drugclip_contract_fingerprint` from the linked revision and code/data
-  hashes.
+- `drugclip_library_contract_fingerprint` from a contract-version tag
+  and the task/loader/helper/dictionary hashes. The legacy
+  `drugclip_contract_fingerprint` name remains as an alias for
+  compatible readers.
+
+The library and encoder contracts are deliberately separate. Changing
+only `checkpoint_best.pt`, its configured path, or an unrelated file
+elsewhere in BioSensIA-DC does not change a new candidate-library
+semantic hash, operational hash, or run ID. The path remains visible in
+resolved configuration for a later encoder command. An encoder or
+embedding artifact instead records the exact checkpoint hash together
+with the input LMDB logical checksum.
 
 The directory name makes those identities visible:
 
@@ -207,6 +221,15 @@ completed compatible run is returned without rebuilding.
 `--overwrite-run` first moves the exact existing run to a timestamped
 sibling backup. The implementation never treats `output_root` itself as
 an overwrite target.
+
+Directories created under the former checkpoint-coupled contract remain
+supported. Their top-level `drugclip_contract_fingerprint`,
+run-directory name, and any recorded `checkpoint_sha256` are treated as
+immutable legacy provenance. `validate`, `report`, `export-lmdb`, and
+the loader compatibility script accept the older manifest shape without
+renaming the directory, recomputing its identity, or requiring access to
+the old checkpoint. New runs use the versioned checkpoint-independent
+field; existing directories are not migrated in place.
 
 # Geometry construction
 
@@ -491,13 +514,15 @@ uv run biosensia-pocket-library build-sidecars --config config/pdbbind-pocket-li
 ### Export an LMDB profile from completed sidecars
 
 `export-lmdb` reads an existing run’s Parquet sidecars as its sole
-scientific input, rechecks the active DrugCLIP contract, filters pockets
-according to the requested profile, and writes a deterministic LMDB plus
-profile metadata. It also replaces that profile’s rows in
-`lmdb_records.parquet` and updates the manifest’s profile and artifact
-inventories. The example exports only tier-A geometry. Other choices are
-`default`, `tiers-ab`, and `all-usable`; use `--overwrite` when
-intentionally replacing an existing file for the same profile.
+scientific input, rechecks the active DrugCLIP library contract without
+reading a checkpoint, filters pockets according to the requested
+profile, and writes a deterministic LMDB plus profile metadata. It also
+replaces that profile’s rows in `lmdb_records.parquet` and updates the
+manifest’s profile and artifact inventories. The example exports only
+tier-A geometry. Other choices are `default`, `tiers-ab`, and
+`all-usable`; use `--overwrite` when intentionally replacing an existing
+file for the same profile. Explicit legacy run directories remain valid
+inputs.
 
 ``` bash
 uv run biosensia-pocket-library export-lmdb \
@@ -607,11 +632,13 @@ Each run contains:
 
   This companion file describes how the default LMDB was derived:
   profile name, tier filter, schema and pickle versions, record count,
-  DrugCLIP contract identity, physical file SHA-256, and the logical
-  digest over framed key/value bytes. Each named LMDB profile has its
-  own adjacent `.profile.json`. Consumers should namespace or invalidate
-  embedding caches using the logical digest, because a familiar filename
-  alone does not prove identical contents.
+  versioned DrugCLIP library-contract identity, physical file SHA-256,
+  and the logical digest over framed key/value bytes. It deliberately
+  contains no checkpoint hash because checkpoint choice cannot alter
+  LMDB bytes. Each named LMDB profile has its own adjacent
+  `.profile.json`. Consumers should namespace or invalidate embedding
+  caches using the logical digest, because a familiar filename alone
+  does not prove identical contents.
 
 - **`reports/*`**
 
@@ -772,9 +799,10 @@ or an embedding comparison. Checkpoint encoding additionally requires
 the active BioSensIA-DC model runtime and CUDA because the linked
 DrugCLIP retrieval encoder moves batches to CUDA. Before promoting a
 full library, run a target-fishing smoke query in that environment as a
-separate end-to-end model test. The manifest’s contract fingerprint
-makes the exact task code, loader code, helper, dictionary, and
-checkpoint used for that promotion auditable.
+separate end-to-end model test. That encoder-test artifact must hash the
+checkpoint and bind it to the candidate LMDB logical checksum; the
+candidate-library manifest itself does not claim that an unused
+checkpoint affected construction.
 
 # Troubleshooting
 
