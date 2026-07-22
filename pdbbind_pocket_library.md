@@ -58,14 +58,14 @@ relevant authorization permits it.
 
 ``` mermaid
 flowchart TD
-  A[PDBbind index and four local files] --> B[Read-only identity bootstrap]
-  D[Linked BioSensIA-DC / DrugCLIP] --> B
-  B --> C[Local ligand and protein parsing]
-  C --> E[Contact and residue-expanded views]
-  E --> F[Geometry hashes and quality]
-  E --> G[PDBbind pocket comparison]
-  H[RCSB content-addressed cache] --> I[Mapping and citation enrichment]
-  F --> J[Explicit-schema Parquet sidecars]
+  A[PDBbind index<br />and four local files] --> B[Read-only identity bootstrap]
+  D[Linked<br />BioSensIA-DC / DrugCLIP] --> B
+  B --> C[Local ligand<br />and protein parsing]
+  C --> E[Contact and<br />residue-expanded views]
+  E --> F[Geometry hashes<br />and quality]
+  E --> G[PDBbind<br />pocket comparison]
+  H[RCSB content-<br />-addressed cache] --> I[Mapping and<br />citation enrichment]
+  F --> J[Explicit-schema<br />Parquet sidecars]
   G --> J
   I --> J
   J --> K[Dense-key protocol-4 LMDB]
