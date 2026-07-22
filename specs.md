@@ -437,6 +437,8 @@ validate
 report
 ```
 
+An interrupted run that reached authoritative sidecars but failed during export or a later stage must be recoverable without repeating extraction or enrichment. The explicit `finalize` command reruns only publication stages: remove abandoned LMDB temporaries, publish the required `default` profile, update `lmdb_records.parquet`, validate, regenerate reports, refresh counts and artifact inventories, and atomically set `status = "complete"` with `completed_at_utc`. It must preserve the original run ID and all top-level build identity/provenance fields, and must refuse finalization when the currently relevant task/loader/helper/dictionary hashes differ from those recorded by the run. Record the finalizer's own code revision and dirty-state fingerprint separately under `finalization`.
+
 `bootstrap-identity` is a read-only preflight that resolves configuration and the DrugCLIP link, parses enough index metadata to determine selection, inventories and hashes the selected local source files, computes the four full fingerprints, and only then creates the run directory and initial manifest. The resumable `inventory` and `parse-index` stages reproduce and validate those bootstrap results as authoritative sidecars. Bootstrap failure must not leave a run directory.
 
 Each stage must:
@@ -2253,6 +2255,7 @@ parse-index
 download-rcsb
 build-sidecars
 export-lmdb
+finalize
 validate
 report
 build
@@ -2277,6 +2280,9 @@ python -m biosensia_pocket_library.cli export-lmdb \
     --run-dir data/processed/pdbbind_2020_v2024p_20250804/<run_id> \
     --profile tiers-ab
 
+python -m biosensia_pocket_library.cli finalize \
+    --run-dir data/processed/pdbbind_2020_v2024p_20250804/<run_id>
+
 python -m biosensia_pocket_library.cli validate \
     --run-dir data/processed/pdbbind_2020_v2024p_20250804/<run_id>
 ```
@@ -2299,6 +2305,8 @@ Useful filters for development:
 `--limit` must be applied after deterministic sorting by PDB ID so development runs are reproducible.
 
 All PDB/year/limit filters form a canonical selection specification whose hash participates in `run_id`; inventory counts must distinguish the complete source from the selected run subset. `--resume` requires an exact compatible run identity. `--overwrite-run` may replace only the explicitly resolved run directory after validating that it is beneath `output_root`; it must never target `output_root` itself. Prefer moving the previous run to a timestamped backup unless `--discard-existing-run` is separately supplied.
+
+`export-lmdb` defaults to the required profile named `default`; named analytical profiles require an explicit `--profile`. It does not claim that the whole run is finalized. `finalize` is idempotent and may overwrite only the required default LMDB and derived publication metadata inside the explicitly supplied run directory. Files matching the builder's narrowly defined hidden LMDB temporary pattern may be removed during finalization. Temporary files must always be excluded from `output_files`, even after a prior process crash.
 
 Define exit codes: `0` for a completed command even when individual complexes are rejected as recorded data; `1` for validation failure or an incomplete required acceptance threshold; `2` for configuration/usage errors; and `3` for fatal infrastructure or source-integrity failure. `--fail-fast` stops on the first per-complex error and exits nonzero. Reject incompatible combinations such as `--offline --refresh-cache`.
 

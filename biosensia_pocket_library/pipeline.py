@@ -713,7 +713,8 @@ def _artifact_inventory(run_dir, *, progress=True):
     excluded = {run_dir / "manifest.json", run_dir / "sidecars/source_files.parquet"}
     values = []
     for path in sorted(item for item in run_dir.rglob("*") if item.is_file()):
-        if path in excluded or "checkpoints" in path.parts or "logs" in path.parts or path.name.endswith("-lock"):
+        if (path in excluded or "checkpoints" in path.parts or "logs" in path.parts
+                or path.name.endswith("-lock") or path.suffix == ".tmp"):
             continue
         with file_progress(path, description=f"Final checksum {path.name}",
                            enabled=progress and path.stat().st_size > 50_000_000) as bar:

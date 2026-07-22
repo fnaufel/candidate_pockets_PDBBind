@@ -77,7 +77,8 @@ def write_resolved_config(path: Path, config: BuildConfig) -> None:
 
 
 def complete_stage(run_dir: Path, manifest: dict, stage: str, version: str,
-                   inputs: dict[str, Any], outputs: list[Path], *, progress: bool = True) -> None:
+                   inputs: dict[str, Any], outputs: list[Path], *, progress: bool = True,
+                   execution_provenance: dict | None = None) -> None:
     output_hashes = {}
     for path in outputs:
         if not path.is_file():
@@ -85,11 +86,12 @@ def complete_stage(run_dir: Path, manifest: dict, stage: str, version: str,
         with file_progress(path, description=f"Checkpointing {path.name}",
                            enabled=progress and path.stat().st_size > 50_000_000) as bar:
             output_hashes[path.relative_to(run_dir).as_posix()] = sha256_file(path, progress=bar)
+    provenance = execution_provenance or manifest
     marker = {"stage": stage, "stage_version": version,
               "semantic_config_hash": manifest["semantic_config_hash"],
-              "source_fingerprint": manifest["source_fingerprint"], "git_commit": manifest["git_commit"],
-              "git_dirty": manifest["git_dirty"],
-              "code_dirty_state_fingerprint": manifest["code_dirty_state_fingerprint"],
+              "source_fingerprint": manifest["source_fingerprint"], "git_commit": provenance["git_commit"],
+              "git_dirty": provenance["git_dirty"],
+              "code_dirty_state_fingerprint": provenance["code_dirty_state_fingerprint"],
               "input_hashes": inputs, "output_hashes": output_hashes}
     marker_path = run_dir / "checkpoints" / stage / "complete.json"
     atomic_write_bytes(marker_path, canonical_json_bytes(marker) + b"\n")

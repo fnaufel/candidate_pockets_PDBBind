@@ -8,6 +8,7 @@ import pyarrow.parquet as pq
 
 from biosensia_pocket_library.config import load_config
 from biosensia_pocket_library.drugclip_contract import verify_drugclip_contract
+from biosensia_pocket_library.finalization import finalize_run
 from biosensia_pocket_library.pipeline import _bounded_thread_map, build_library
 from biosensia_pocket_library.reporting import generate_reports
 from biosensia_pocket_library.validation import validate_run
@@ -150,3 +151,42 @@ def test_legacy_manifest_remains_valid(tmp_path: Path):
     generate_reports(run_dir, manifest)
     summary = json.loads((run_dir / "reports/build_summary.json").read_text())
     assert summary["drugclip_library_contract_fingerprint"] == manifest["drugclip_contract_fingerprint"]
+
+
+def test_finalize_recovers_interrupted_legacy_run_without_changing_identity(tmp_path: Path):
+    _fixture(tmp_path)
+    config = load_config(project_root=tmp_path, overrides={
+        "pipeline.offline": True, "pipeline.progress": False, "rcsb.download_mmcif": False,
+        "pocket.minimum_pocket_atoms_warning": 1,
+    })
+    run_dir = build_library(config, pdb_ids=["1abc"], export=False, progress=False)
+    manifest_path = run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    identity = {key: manifest[key] for key in (
+        "run_id", "semantic_config_hash", "source_fingerprint", "selection_fingerprint",
+        "drugclip_contract_fingerprint", "git_commit", "code_dirty_state_fingerprint",
+    )}
+    manifest.pop("drugclip_library_contract_fingerprint")
+    manifest["drugclip_contract"]["checkpoint_sha256"] = "legacy-checkpoint-hash"
+    manifest["completed_at_utc"] = None
+    manifest["counts"] = {}
+    manifest["status"] = "running"
+    manifest_path.write_text(json.dumps(manifest))
+    temporary = run_dir / "lmdb/.candidate_pockets.lmdb.123.tmp"
+    temporary.parent.mkdir(exist_ok=True)
+    temporary.write_bytes(b"abandoned")
+
+    finalized = finalize_run(run_dir, config, progress=False)
+
+    assert finalized["status"] == "complete"
+    assert finalized["completed_at_utc"]
+    assert finalized["counts"]["default_lmdb_records"] == 1
+    assert finalized["lmdb_profiles"]["default"]["profile_name"] == "default"
+    assert (run_dir / "lmdb/candidate_pockets.lmdb").is_file()
+    assert not temporary.exists()
+    assert not any(item["path"].endswith(".tmp") for item in finalized["output_files"])
+    assert finalized["drugclip_contract"]["checkpoint_sha256"] == "legacy-checkpoint-hash"
+    assert {key: finalized[key] for key in identity} == identity
+    assert finalized["stage_statuses"]["export-lmdb"]["status"] == "complete"
+    assert finalized["stage_statuses"]["validate"]["status"] == "complete"
+    assert finalized["stage_statuses"]["report"]["status"] == "complete"

@@ -27,6 +27,8 @@ BioSensIA
       LMDB](#build-authoritative-sidecars-without-lmdb)
     - [Export an LMDB profile from completed
       sidecars](#export-an-lmdb-profile-from-completed-sidecars)
+    - [Finalize or recover a run from completed
+      sidecars](#finalize-or-recover-a-run-from-completed-sidecars)
     - [Revalidate a completed run](#revalidate-a-completed-run)
     - [Regenerate summary reports](#regenerate-summary-reports)
 - [Output contract](#output-contract)
@@ -518,16 +520,43 @@ scientific input, rechecks the active DrugCLIP library contract without
 reading a checkpoint, filters pockets according to the requested
 profile, and writes a deterministic LMDB plus profile metadata. It also
 replaces that profile’s rows in `lmdb_records.parquet` and updates the
-manifest’s profile and artifact inventories. The example exports only
-tier-A geometry. Other choices are `default`, `tiers-ab`, and
+manifest’s profile and artifact inventories. Omitting `--profile` now
+selects the required profile named `default`; the example explicitly
+exports only tier-A geometry. Other choices are `tiers-ab` and
 `all-usable`; use `--overwrite` when intentionally replacing an existing
 file for the same profile. Explicit legacy run directories remain valid
-inputs.
+inputs. Exporting an optional profile does not mark the entire run
+complete.
 
 ``` bash
 uv run biosensia-pocket-library export-lmdb \
   --run-dir data/processed/pdbbind_2020_v2024p_20250804/<run-id> \
   --profile tier-a
+```
+
+### Finalize or recover a run from completed sidecars
+
+Use `finalize` when a build completed extraction and sidecar writing but
+failed during LMDB export, validation, or reporting. It does not repeat
+source inventory, geometry extraction, RCSB downloads, or enrichment. It
+removes only abandoned hidden LMDB temporary files, recreates the
+required `default` LMDB, updates its membership sidecar, validates the
+complete run, regenerates reports, records final counts and stage
+markers, refreshes the artifact inventory, and sets a completion
+timestamp and `status: complete` atomically.
+
+The command preserves the original run ID,
+source/selection/configuration fingerprints, legacy DrugCLIP identity,
+build Git commit, and build code fingerprint. It verifies that the
+currently relevant task, loader, helper, and dictionary hashes still
+match the run before publishing. The newer code used for recovery is
+recorded separately in `manifest.finalization`. This is important for
+legacy directories: recovery adds publication provenance without
+pretending that new code performed the original extraction.
+
+``` bash
+uv run biosensia-pocket-library finalize \
+  --run-dir data/processed/pdbbind_2020_v2024p_20250804/<run-id>
 ```
 
 ### Revalidate a completed run
@@ -815,6 +844,11 @@ combined loader module.
 **A run directory already exists.** Use `--resume` only when continuing
 the identical full identity. Use `--overwrite-run` to preserve the
 previous directory as a timestamped backup before rebuilding.
+
+**A build failed after sidecars were written.** Do not use
+`--overwrite-run` and do not repeat the expensive build. Run
+`finalize --run-dir <run-id>`. It repairs the required default LMDB and
+final publication metadata while preserving the original identity.
 
 **A pocket is absent from the default LMDB.** Inspect
 `complexes.parquet`, `pockets.parquet`, and `processing_issues.parquet`.

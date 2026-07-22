@@ -10,6 +10,7 @@ from pathlib import Path
 from .config import BuildConfig, load_config
 from .drugclip_contract import verify_drugclip_contract
 from .exceptions import ConfigurationError, SourceIntegrityError
+from .finalization import finalize_run
 from .index_parser import parse_index
 from .inventory import inventory_sources
 from .lmdb_export import export_lmdb
@@ -41,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _dispatch(args) -> int:
-    if args.command in {"export-lmdb", "validate", "report"}:
+    if args.command in {"export-lmdb", "finalize", "validate", "report"}:
         run_dir = args.run_dir.resolve()
         config_path = args.config or run_dir / "config.resolved.toml"
         config = load_config(config_path)
@@ -102,6 +103,12 @@ def _dispatch(args) -> int:
         write_manifest(run_dir, manifest)
         print(json.dumps(metadata, indent=2, sort_keys=True))
         return 0
+    if args.command == "finalize":
+        manifest = finalize_run(run_dir, config, progress=progress)
+        print(json.dumps({"run_id": manifest["run_id"], "status": manifest["status"],
+                          "completed_at_utc": manifest["completed_at_utc"],
+                          "counts": manifest["counts"]}, indent=2, sort_keys=True))
+        return 0
     if args.command == "validate":
         errors = validate_run(run_dir, config, progress=progress)
         if errors:
@@ -134,10 +141,10 @@ def _parser() -> argparse.ArgumentParser:
     export_parser = subparsers.add_parser("export-lmdb")
     export_parser.add_argument("--run-dir", type=Path, required=True)
     export_parser.add_argument("--config", type=Path)
-    export_parser.add_argument("--profile", choices=("default", "tier-a", "tiers-ab", "all-usable"), default="tiers-ab")
+    export_parser.add_argument("--profile", choices=("default", "tier-a", "tiers-ab", "all-usable"), default="default")
     export_parser.add_argument("--overwrite", action="store_true")
     export_parser.add_argument("--no-progress", action="store_true")
-    for command in ("validate", "report"):
+    for command in ("finalize", "validate", "report"):
         item = subparsers.add_parser(command)
         item.add_argument("--run-dir", type=Path, required=True)
         item.add_argument("--config", type=Path)
