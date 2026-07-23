@@ -19,6 +19,26 @@ from .quality import load_quality_effects
 from .progress import file_progress
 
 
+PIPELINE_STAGE_ORDER = (
+    "bootstrap-identity",
+    "check-drugclip-contract",
+    "inventory",
+    "parse-index",
+    "parse-structures",
+    "extract-pockets",
+    "compare-pockets",
+    "download-rcsb",
+    "map-structures",
+    "enrich-citations",
+    "quality-control",
+    "write-sidecars",
+    "export-lmdb",
+    "validate",
+    "report",
+)
+_STAGE_ORDINAL = {stage: ordinal for ordinal, stage in enumerate(PIPELINE_STAGE_ORDER)}
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -93,7 +113,10 @@ def complete_stage(run_dir: Path, manifest: dict, stage: str, version: str,
               "git_dirty": provenance["git_dirty"],
               "code_dirty_state_fingerprint": provenance["code_dirty_state_fingerprint"],
               "input_hashes": inputs, "output_hashes": output_hashes}
-    marker_path = run_dir / "checkpoints" / stage / "complete.json"
+    if stage not in _STAGE_ORDINAL:
+        raise ValueError(f"Unknown pipeline stage: {stage}")
+    directory_name = f"{_STAGE_ORDINAL[stage]:03d}_{stage}"
+    marker_path = run_dir / "checkpoints" / directory_name / "complete.json"
     atomic_write_bytes(marker_path, canonical_json_bytes(marker) + b"\n")
     manifest["stage_statuses"][stage] = {"status": "complete", "marker": marker_path.relative_to(run_dir).as_posix()}
     write_manifest(run_dir, manifest)

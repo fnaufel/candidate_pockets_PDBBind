@@ -1,6 +1,6 @@
 # Building the BioSensIA-DC Candidate Pocket Library
 BioSensIA
-2026-07-22
+2026-07-23
 
 - [Purpose](#purpose)
 - [Implementation map](#implementation-map)
@@ -626,15 +626,20 @@ Each run contains:
   relevant to optional services, but never copies secret values into the
   run.
 
-- **`checkpoints/<stage>/complete.json`**
+- **`checkpoints/<ordinal>_<stage>/complete.json`**
 
   Each stage directory contains a small completion marker naming the
   stage and its version, the run’s identity fingerprints, relevant input
-  hashes, and hashes of that stage’s material outputs. These markers
-  distinguish a genuinely completed stage from a partially written
-  directory and support safe resume checks. They are control metadata,
-  so they are not themselves part of the final artifact checksum
-  boundary.
+  hashes, and hashes of that stage’s material outputs. Directory names
+  begin with a zero-padded three-digit pipeline
+  ordinal—`000_bootstrap-identity`, `001_check-drugclip-contract`,
+  through `014_report`—so a lexical directory listing shows execution
+  order. The manifest continues using stable unnumbered stage keys.
+  Existing runs with legacy unnumbered checkpoint directories remain
+  valid and are not renamed automatically. These markers distinguish a
+  genuinely completed stage from a partially written directory and
+  support safe resume checks. They are control metadata, so they are not
+  themselves part of the final artifact checksum boundary.
 
 - **`sidecars/*.parquet`**
 

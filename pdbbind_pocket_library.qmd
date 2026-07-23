@@ -318,9 +318,9 @@ Each run contains:
 
   This is the complete effective configuration after defaults, the user TOML, and CLI overrides have been combined and paths normalized. It lets a reader see the actual settings used rather than reconstructing them from several sources. It records environment-variable *names* relevant to optional services, but never copies secret values into the run.
 
-- **`checkpoints/<stage>/complete.json`**
+- **`checkpoints/<ordinal>_<stage>/complete.json`**
 
-  Each stage directory contains a small completion marker naming the stage and its version, the run's identity fingerprints, relevant input hashes, and hashes of that stage's material outputs. These markers distinguish a genuinely completed stage from a partially written directory and support safe resume checks. They are control metadata, so they are not themselves part of the final artifact checksum boundary.
+  Each stage directory contains a small completion marker naming the stage and its version, the run's identity fingerprints, relevant input hashes, and hashes of that stage's material outputs. Directory names begin with a zero-padded three-digit pipeline ordinal—`000_bootstrap-identity`, `001_check-drugclip-contract`, through `014_report`—so a lexical directory listing shows execution order. The manifest continues using stable unnumbered stage keys. Existing runs with legacy unnumbered checkpoint directories remain valid and are not renamed automatically. These markers distinguish a genuinely completed stage from a partially written directory and support safe resume checks. They are control metadata, so they are not themselves part of the final artifact checksum boundary.
 
 - **`sidecars/*.parquet`**
 

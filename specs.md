@@ -450,11 +450,16 @@ Each stage must:
 5. Refuse to reuse a checkpoint when any marker field is incompatible or an output is missing or fails its recorded logical checksum.
 6. Record failures as data instead of terminating the entire run, unless `--fail-fast` is specified.
 
-Intermediate checkpoints may use Parquet files under:
+Checkpoint directories must carry the zero-padded pipeline ordinal so ordinary lexical sorting preserves execution order. Completion markers and any intermediate checkpoint artifacts use:
 
 ```text
-checkpoints/<stage-name>/
+checkpoints/000_bootstrap-identity/
+checkpoints/001_check-drugclip-contract/
+...
+checkpoints/014_report/
 ```
+
+The stage name remains the stable manifest key and the marker's `stage` value. Readers must continue accepting legacy unnumbered `checkpoints/<stage-name>/` paths recorded by existing manifests; do not rename or delete those directories automatically.
 
 Temporary files must be written under the run directory and renamed atomically only after successful completion. Directory-valued stages must build a sibling temporary directory and atomically rename it. A failure after partial per-complex work must still produce isolated issue records without publishing an incomplete stage marker.
 

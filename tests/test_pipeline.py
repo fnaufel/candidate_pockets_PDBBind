@@ -9,6 +9,7 @@ import pyarrow.parquet as pq
 from biosensia_pocket_library.config import load_config
 from biosensia_pocket_library.drugclip_contract import verify_drugclip_contract
 from biosensia_pocket_library.finalization import finalize_run
+from biosensia_pocket_library.manifest import PIPELINE_STAGE_ORDER
 from biosensia_pocket_library.pipeline import _bounded_thread_map, build_library
 from biosensia_pocket_library.reporting import generate_reports
 from biosensia_pocket_library.validation import validate_run
@@ -74,6 +75,10 @@ def test_synthetic_end_to_end_build(tmp_path: Path):
     assert pocket["drugclip_export_view"] == "contact_atom"
     assert pocket["pocket_instance_id"].startswith(complex_row["complex_id"] + ":")
     assert (run_dir / "lmdb/candidate_pockets.lmdb").is_file()
+    checkpoint_directories = sorted(path.name for path in (run_dir / "checkpoints").iterdir())
+    assert checkpoint_directories == [
+        f"{ordinal:03d}_{stage}" for ordinal, stage in enumerate(PIPELINE_STAGE_ORDER)
+    ]
 
 
 def test_worker_count_does_not_change_logical_outputs(tmp_path: Path):
