@@ -12,6 +12,7 @@ import lmdb
 import numpy as np
 
 from .config import BuildConfig
+from .constants import SIDECAR_SCHEMA_VERSION
 from .drugclip_contract import read_dictionary
 from .hashing import atomic_write_bytes, canonical_json_bytes, length_frame, sha256_bytes, sha256_file
 from .progress import track
@@ -41,18 +42,25 @@ def export_lmdb(
                    and row["geometry_quality_tier"] in definition["tiers"]}
     atoms_by_pocket: dict[str, list[dict]] = {key: [] for key in pocket_rows}
     for atom in read_sidecar(sidecars, "pocket_atoms"):
-        if atom["pocket_instance_id"] in atoms_by_pocket and atom["retained_after_crop"]:
+        pocket = pocket_rows.get(atom["pocket_instance_id"])
+        included = (atom["included_in_lmdb_source"] if pocket and pocket["drugclip_export_view"] == "source_pickle"
+                    else atom["retained_after_crop"])
+        if atom["pocket_instance_id"] in atoms_by_pocket and included:
             atoms_by_pocket[atom["pocket_instance_id"]].append(atom)
-    payloads: list[tuple[str, bytes]] = []
+    payloads: list[tuple[str, str, bytes]] = []
     dictionary = read_dictionary(config.paths.drugclip_dictionary)
     for pocket_id in sorted(pocket_rows):
-        atom_rows = sorted(atoms_by_pocket[pocket_id], key=lambda row: row["export_order"])
+        pocket = pocket_rows[pocket_id]
+        representation = "source_pickle" if pocket["drugclip_export_view"] == "source_pickle" else "post_transform"
+        order_column = "source_order" if representation == "source_pickle" else "export_order"
+        atom_rows = sorted(atoms_by_pocket[pocket_id], key=lambda row: row[order_column])
         tokens = [row["element"] for row in atom_rows]
         coords = np.asarray([[row["x"], row["y"], row["z"]] for row in atom_rows], dtype="<f4", order="C")
-        _validate_record_fields(pocket_id, tokens, coords, dictionary, config.pocket.max_pocket_atoms)
+        _validate_record_fields(pocket_id, tokens, coords, dictionary, config.pocket.max_pocket_atoms,
+                                representation=representation)
         value = pickle.dumps({"pocket": pocket_id, "pocket_atoms": tokens,
                               "pocket_coordinates": coords}, protocol=4)
-        payloads.append((pocket_id, value))
+        payloads.append((pocket_id, representation, value))
     map_size = _map_size(payloads, config)
     lmdb_dir = run_dir / "lmdb"
     lmdb_dir.mkdir(parents=True, exist_ok=True)
@@ -63,7 +71,7 @@ def export_lmdb(
     temporary.unlink(missing_ok=True)
     rows: list[dict] = []
     logical = hashlib.sha256()
-    for index, (pocket_id, value) in enumerate(payloads):
+    for index, (pocket_id, representation, value) in enumerate(payloads):
         key = str(index).encode("ascii")
         framed = length_frame((key, value))
         logical.update(framed)
@@ -71,6 +79,7 @@ def export_lmdb(
         rows.append({"library_profile": profile, "lmdb_path": destination.relative_to(run_dir).as_posix(),
                      "record_index": index, "lmdb_key": key.decode("ascii"),
                      "pocket_instance_id": pocket_id,
+                     "record_representation": representation,
                      "pocket_geometry_content_hash": pocket["pocket_geometry_content_hash"],
                      "pocket_derivation_hash": pocket["pocket_derivation_hash"],
                      "atom_count": len(pickle.loads(value)["pocket_atoms"]),
@@ -86,7 +95,7 @@ def export_lmdb(
     metadata = {
         "profile_name": profile, "filter_ast": {"column": "geometry_quality_tier", "operator": "in",
                                                   "values": list(definition["tiers"])},
-        "schema_versions": {"sidecar": "1.0.0", "extraction": config.pipeline.extraction_version,
+        "schema_versions": {"sidecar": SIDECAR_SCHEMA_VERSION, "extraction": config.pipeline.extraction_version,
                             "lmdb_record": "1.0.0"},
         "source_sidecar_hashes": {
             "pockets.parquet": sha256_file(sidecars / "pockets.parquet"),
@@ -133,8 +142,10 @@ def _validate_lmdb_file(path, rows, dictionary, max_atoms, *, progress=True):
                     record = pickle.loads(value)
                     if set(record) != {"pocket", "pocket_atoms", "pocket_coordinates"}:
                         raise ValueError("wrong record keys")
+                    representation = rows[index].get("record_representation") if rows else "post_transform"
                     _validate_record_fields(record["pocket"], record["pocket_atoms"],
-                                            record["pocket_coordinates"], dictionary, max_atoms)
+                                            record["pocket_coordinates"], dictionary, max_atoms,
+                                            representation=representation or "post_transform")
                     if rows and record["pocket"] != rows[index]["pocket_instance_id"]:
                         raise ValueError("record order differs from sidecar")
                 except Exception as error:
@@ -146,20 +157,23 @@ def _validate_lmdb_file(path, rows, dictionary, max_atoms, *, progress=True):
     return errors
 
 
-def _validate_record_fields(name, atoms, coordinates, dictionary, max_atoms):
+def _validate_record_fields(name, atoms, coordinates, dictionary, max_atoms, *, representation="post_transform"):
     if not isinstance(name, str) or not isinstance(atoms, list) or not isinstance(coordinates, np.ndarray):
         raise ValueError("wrong record field type")
+    if any(not isinstance(token, str) or not token for token in atoms):
+        raise ValueError("atom tokens must be nonempty strings")
     if coordinates.dtype != np.float32 or coordinates.dtype.str != "<f4" or not coordinates.flags.c_contiguous:
         raise ValueError("coordinates must be contiguous little-endian float32")
-    if coordinates.shape != (len(atoms), 3) or not 1 <= len(atoms) <= max_atoms:
+    maximum = None if representation == "source_pickle" else max_atoms
+    if coordinates.shape != (len(atoms), 3) or not len(atoms) or (maximum is not None and len(atoms) > maximum):
         raise ValueError("invalid atom/coordinate shape or count")
-    if not np.isfinite(coordinates).all() or "H" in atoms:
-        raise ValueError("nonfinite coordinates or hydrogen token")
-    missing = set(atoms) - dictionary
+    if not np.isfinite(coordinates).all() or (representation != "source_pickle" and "H" in atoms):
+        raise ValueError("nonfinite coordinates or disallowed hydrogen token")
+    transformed = [token[1] if token and token[0].isdigit() and len(token) > 1 else token[0] for token in atoms]
+    missing = set(transformed) - dictionary
     if missing:
         raise ValueError(f"dictionary lacks tokens {sorted(missing)}")
-    transformed = [token[1] if token and token[0].isdigit() and len(token) > 1 else token[0] for token in atoms]
-    if transformed != atoms:
+    if representation != "source_pickle" and transformed != atoms:
         raise ValueError("DrugCLIP token transformation is lossy")
 
 
@@ -171,7 +185,8 @@ def _map_size(payloads, config):
     # serialized bytes substantially underestimates the physical map.
     page_footprint = sum(
         ((len(value) + len(str(index)) + 32 + page - 1) // page) * page
-        for index, (_, value) in enumerate(payloads)
+        for index, item in enumerate(payloads)
+        for value in (item[-1],)
     )
     branch_pages = ((len(payloads) + 99) // 100) * page
     raw = page_footprint + branch_pages + 1_048_576
@@ -191,8 +206,9 @@ def _write_lmdb(path, payloads, map_size, *, auto, profile, progress):
             if attempt > 1:
                 description += f" (retry {attempt}, {map_size // (1024 * 1024)} MiB map)"
             with env.begin(write=True) as transaction:
-                for index, (_, value) in enumerate(track(payloads, description=description,
-                                                         total=len(payloads), enabled=progress)):
+                for index, item in enumerate(track(payloads, description=description,
+                                                    total=len(payloads), enabled=progress)):
+                    value = item[-1]
                     key = str(index).encode("ascii")
                     if not transaction.put(key, value, overwrite=False):
                         raise RuntimeError(f"Duplicate LMDB key {key!r}")

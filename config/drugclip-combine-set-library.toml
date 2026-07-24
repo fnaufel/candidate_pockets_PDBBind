@@ -1,0 +1,27 @@
+[pipeline]
+schema_version = "2.0.0"
+extraction_version = "combine-set-1"
+random_seed = 1
+offline = true
+workers = 1
+fail_fast = false
+progress = true
+
+[paths]
+combine_set_root = "BioSensIA-DC/external/DrugCLIP/data/pdb/combine_set"
+combine_set_output_root = "data/processed/drugclip_combine_set"
+drugclip_dir = "BioSensIA-DC/external/DrugCLIP"
+drugclip_dictionary = "BioSensIA-DC/external/DrugCLIP/data/dict_pkt.txt"
+
+[combine_set]
+trusted_pickles = true
+distribution_id = "drugclip-combine-set"
+nominal_release = "unversioned-vendored-snapshot"
+preserve_source_geometry = true
+compare_coordinate_tolerance_angstrom = 0.0001
+
+[quality]
+rules_file = "config/pocket-quality-rules.toml"
+
+[rcsb]
+download_mmcif = false

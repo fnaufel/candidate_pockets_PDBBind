@@ -14,6 +14,17 @@ from .progress import track
 from .schemas import TABLES
 
 
+ADDITIVE_V2_COLUMNS = {
+    "complexes": {"geometry_origin", "geometry_source_file_id"},
+    "pockets": {"geometry_origin", "geometry_source_file_id", "derivation_method",
+                "source_geometry_atom_count", "source_geometry_heavy_atom_count"},
+    "pocket_atoms": {"source_atom_key", "geometry_source_file_id", "source_mapping_status",
+                     "included_in_lmdb_source"},
+    "pocket_comparisons": {"left_geometry_role", "right_geometry_role"},
+    "lmdb_records": {"record_representation"},
+}
+
+
 def write_sidecars(directory: Path, rows_by_table: dict[str, list[dict[str, Any]]], *, progress: bool = True,
                    table_names: set[str] | None = None) -> dict[str, dict]:
     directory.mkdir(parents=True, exist_ok=True)
@@ -61,7 +72,10 @@ def describe_sidecars(directory: Path, rows_by_table: dict[str, list[dict[str, A
 
 
 def read_sidecar(directory: Path, name: str) -> list[dict]:
-    return pq.read_table(directory / f"{name}.parquet", schema=TABLES[name].schema).to_pylist()
+    table = pq.read_table(directory / f"{name}.parquet")
+    if table.schema.remove_metadata() == TABLES[name].schema.remove_metadata():
+        return table.to_pylist()
+    return pa.Table.from_pylist(table.to_pylist(), schema=TABLES[name].schema).to_pylist()
 
 
 def validate_sidecars(directory: Path) -> list[str]:
@@ -73,7 +87,8 @@ def validate_sidecars(directory: Path) -> list[str]:
             errors.append(f"Missing sidecar {name}")
             continue
         actual = pq.read_schema(path)
-        if actual.remove_metadata() != spec.schema.remove_metadata():
+        if (actual.remove_metadata() != spec.schema.remove_metadata()
+                and not _is_compatible_v1_schema(name, actual, spec.schema)):
             errors.append(f"Schema mismatch: {name}")
         rows = pq.read_table(path).to_pylist()
         loaded[name] = rows
@@ -100,3 +115,9 @@ def validate_sidecars(directory: Path) -> list[str]:
 
 def _sort_value(value: Any):
     return (value is None, value if not isinstance(value, list) else tuple(value))
+
+
+def _is_compatible_v1_schema(name: str, actual: pa.Schema, current: pa.Schema) -> bool:
+    additions = ADDITIVE_V2_COLUMNS.get(name, set())
+    expected_fields = [field for field in current if field.name not in additions]
+    return actual.remove_metadata() == pa.schema(expected_fields)

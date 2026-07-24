@@ -1,9 +1,9 @@
 """Versioned constants and controlled vocabularies."""
 
-PIPELINE_NAME = "biosensia-pdbbind-pocket-library"
-PIPELINE_VERSION = "0.1.0"
-MANIFEST_SCHEMA_VERSION = "1.0.0"
-SIDECAR_SCHEMA_VERSION = "1.0.0"
+PIPELINE_NAME = "biosensia-candidate-pocket-library"
+PIPELINE_VERSION = "0.2.0"
+MANIFEST_SCHEMA_VERSION = "2.0.0"
+SIDECAR_SCHEMA_VERSION = "2.0.0"
 EXTRACTION_SCHEMA_VERSION = "1"
 LIGAND_PARSER_SCHEMA_VERSION = "1"
 HASH_SCHEMA_VERSION = "1"

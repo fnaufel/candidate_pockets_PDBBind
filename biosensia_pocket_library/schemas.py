@@ -6,6 +6,8 @@ from dataclasses import dataclass, replace
 
 import pyarrow as pa
 
+from .constants import SIDECAR_SCHEMA_VERSION
+
 S = pa.string()
 I = pa.int64()
 F = pa.float64()
@@ -26,7 +28,8 @@ class TableSpec:
 
 
 def _schema(fields: list[tuple[str, pa.DataType]], name: str) -> pa.Schema:
-    return pa.schema(fields, metadata={b"schema_name": name.encode(), b"semantic_version": b"1.0.0"})
+    return pa.schema(fields, metadata={b"schema_name": name.encode(),
+                                      b"semantic_version": SIDECAR_SCHEMA_VERSION.encode()})
 
 
 TABLES: dict[str, TableSpec] = {}
@@ -53,6 +56,7 @@ _add("binding_measurements", [
 ], ["measurement_id"], (("complex_id", "complexes", "complex_id"),))
 _add("complexes", [(name, kind) for name, kind in [
     ("complex_id", S), ("pdb_id", S), ("distribution_id", S), ("nominal_complex_set_version", S),
+    ("geometry_origin", S), ("geometry_source_file_id", S),
     ("structure_processing_version", S), ("index_revision_date", S), ("primary_index_line_number", I),
     ("index_line_redacted", S), ("source_line_sha256", S), ("release_year", I), ("resolution_raw", S),
     ("resolution_angstrom", F), ("experimental_method_hint", S), ("ligand_label", S), ("index_comment", S),
@@ -79,6 +83,8 @@ _add("ligand_components", [("ligand_instance_id", S), ("component_index", I), ("
 _add("pockets", [(name, kind) for name, kind in [
     ("pocket_instance_id", S), ("complex_id", S), ("ligand_instance_id", S), ("pdb_id", S),
     ("pocket_geometry_content_hash", S), ("pocket_derivation_hash", S), ("extraction_schema_version", S),
+    ("geometry_origin", S), ("geometry_source_file_id", S), ("derivation_method", S),
+    ("source_geometry_atom_count", I), ("source_geometry_heavy_atom_count", I),
     ("distance_cutoff_angstrom", F), ("selected_model_id", I), ("model_count", I), ("altloc_policy", S),
     ("hydrogen_policy", S), ("contact_atom_count", I), ("residue_expanded_atom_count", I),
     ("exported_atom_count", I), ("contact_residue_count", I), ("drugclip_export_view", S),
@@ -98,7 +104,8 @@ _add("pocket_residues", [("pocket_instance_id", S), ("pdb_id", S), ("model_id", 
     ["pocket_instance_id", "model_id", "auth_chain_id", "auth_residue_number", "insertion_code", "residue_name"],
     (("pocket_instance_id", "pockets", "pocket_instance_id"),))
 _add("pocket_atoms", [(name, kind) for name, kind in [
-    ("pocket_instance_id", S), ("pdbbind_atom_key", S), ("source_order", I), ("model_id", I),
+    ("pocket_instance_id", S), ("pdbbind_atom_key", S), ("source_atom_key", S),
+    ("geometry_source_file_id", S), ("source_order", I), ("model_id", I),
     ("record_type", S), ("auth_chain_id", S), ("auth_residue_number", I), ("insertion_code", S),
     ("residue_name", S), ("atom_name", S), ("altloc", S), ("element", S), ("occupancy", F),
     ("b_factor", F), ("x", F), ("y", F), ("z", F), ("minimum_ligand_distance", F),
@@ -106,11 +113,13 @@ _add("pocket_atoms", [(name, kind) for name, kind in [
     ("export_order", I), ("element_supported_by_drugclip", B), ("rcsb_atom_mapping_status", S),
     ("rcsb_label_asym_id", S), ("rcsb_label_seq_id", I), ("rcsb_atom_id", S),
     ("rcsb_polymer_entity_id", S),
+    ("source_mapping_status", S), ("included_in_lmdb_source", B),
 ]], ["pocket_instance_id", "pdbbind_atom_key"], (("pocket_instance_id", "pockets", "pocket_instance_id"),),
     ["pocket_instance_id", "source_order"])
 
 _comparison_fields = [
     ("pocket_instance_id", S), ("comparison_view", S), ("pdbbind_pocket_file_id", S), ("comparison_status", S),
+    ("left_geometry_role", S), ("right_geometry_role", S),
     ("reextracted_atom_count", I), ("pdbbind_atom_count", I), ("reextracted_heavy_atom_count", I),
     ("pdbbind_heavy_atom_count", I), ("common_atom_exact_count", I), ("common_atom_fallback_count", I),
     ("only_reextracted_atom_count", I), ("only_pdbbind_atom_count", I), ("atom_jaccard", F),
@@ -177,7 +186,8 @@ _add("processing_issues", [("issue_id", S), ("stage", S), ("complex_id", S), ("p
     ("severity", S), ("issue_code", S), ("message", S), ("exception_type", S), ("source_file_id", S),
     ("created_at_utc", TS), ("details_json", S)], ["issue_id"])
 _add("lmdb_records", [("library_profile", S), ("lmdb_path", S), ("record_index", I), ("lmdb_key", S),
-    ("pocket_instance_id", S), ("pocket_geometry_content_hash", S), ("pocket_derivation_hash", S),
+    ("pocket_instance_id", S), ("record_representation", S),
+    ("pocket_geometry_content_hash", S), ("pocket_derivation_hash", S),
     ("atom_count", I), ("serialized_record_sha256", S), ("logical_record_sha256", S)],
     ["library_profile", "record_index"])
 
@@ -191,11 +201,13 @@ ENUMS_BY_TABLE = {
     "binding_measurements": {"parse_status": {"parsed_exact", "parsed_censored", "parsed_approximate",
         "unsupported_measurement_type", "unsupported_unit", "malformed", "missing"}},
     "complexes": {"processing_status": {"accepted", "accepted_with_warnings", "rejected", "not_processed"},
+        "geometry_origin": {"pdbbind_reextracted", "drugclip_combine_set_pickle"},
         "geometry_quality_tier": {"A", "B", "C", "rejected", "not_processed"},
         "pocket_comparison_quality": {"concordant", "moderate_difference", "severe_difference", "unavailable", "not_processed"},
         "structure_mapping_quality": {"exact", "aligned", "ambiguous", "unresolved", "unavailable", "not_processed"},
         "bibliography_quality": {"exact", "probable", "unresolved", "unavailable", "not_attempted"}},
     "pockets": {"processing_status": {"accepted", "accepted_with_warnings", "rejected", "not_processed"},
+        "geometry_origin": {"pdbbind_reextracted", "drugclip_combine_set_pickle"},
         "geometry_quality_tier": {"A", "B", "C", "rejected", "not_processed"},
         "pocket_comparison_quality": {"concordant", "moderate_difference", "severe_difference", "unavailable", "not_processed"},
         "structure_mapping_quality": {"exact", "aligned", "ambiguous", "unresolved", "unavailable", "not_processed"},
@@ -216,7 +228,10 @@ FOREIGN_KEYS_BY_TABLE = {
     "complexes": (("protein_file_id", "source_files", "source_file_id"),
                   ("ligand_sdf_file_id", "source_files", "source_file_id"),
                   ("ligand_mol2_file_id", "source_files", "source_file_id"),
-                  ("pdbbind_pocket_file_id", "source_files", "source_file_id")),
+                  ("pdbbind_pocket_file_id", "source_files", "source_file_id"),
+                  ("geometry_source_file_id", "source_files", "source_file_id")),
+    "pockets": (("geometry_source_file_id", "source_files", "source_file_id"),),
+    "pocket_atoms": (("geometry_source_file_id", "source_files", "source_file_id"),),
     "ligand_instances": (("selected_source_file_id", "source_files", "source_file_id"),),
     "index_record_occurrences": (("complex_id", "complexes", "complex_id"),),
     "protein_chains": (("pocket_instance_id", "pockets", "pocket_instance_id"),),

@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 
 from .config import BuildConfig, load_config
+from .combine_set_pipeline import build_combine_set_library
+from .combine_set_source import discover_combine_set, inventory_combine_set, select_combine_set
 from .drugclip_contract import verify_drugclip_contract
 from .exceptions import ConfigurationError, SourceIntegrityError
 from .finalization import finalize_run
@@ -70,6 +72,18 @@ def _dispatch(args) -> int:
                           "discovered_count": sum(bool(item["complex_directory"]) for item in directories.values()),
                           "issue_count": len(issues)}, indent=2, sort_keys=True))
         return 0
+    if args.command == "inventory-combine-set":
+        root = config.paths.combine_set_root
+        assert root is not None
+        discovered = discover_combine_set(root)
+        selected = select_combine_set(
+            discovered, args.pdb_id or _read_ids(args.pdb_ids_file), args.limit
+        )
+        files, directories, issues = inventory_combine_set(selected, config, progress=progress)
+        print(json.dumps({"discovered_count": len(discovered), "selected_count": len(selected),
+                          "file_count": len(files), "bundle_count": len(directories),
+                          "issue_count": len(issues)}, indent=2, sort_keys=True))
+        return 0
     if args.command == "download-rcsb":
         records, _, _ = parse_index(config.paths.index_dir / "INDEX_general_PL.2020R1.lst", DISTRIBUTION_ID)
         selected = _cli_select(records, args)
@@ -81,6 +95,14 @@ def _dispatch(args) -> int:
         run_dir = build_library(config, pdb_ids=args.pdb_id or _read_ids(args.pdb_ids_file), limit=args.limit,
                                 year_from=args.year_from, year_to=args.year_to, resume=args.resume,
                                 overwrite_run=args.overwrite_run, export=args.command == "build", progress=progress)
+        print(run_dir)
+        return 0
+    if args.command in {"build-combine-set", "build-combine-set-sidecars"}:
+        run_dir = build_combine_set_library(
+            config, pdb_ids=args.pdb_id or _read_ids(args.pdb_ids_file), limit=args.limit,
+            resume=args.resume, overwrite_run=args.overwrite_run,
+            export=args.command == "build-combine-set", progress=progress,
+        )
         print(run_dir)
         return 0
     if args.command == "export-lmdb":
@@ -130,10 +152,12 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="biosensia-pocket-library")
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("check-drugclip-contract", "inventory", "parse-index", "download-rcsb",
-                    "build-sidecars", "build"):
+                    "build-sidecars", "build", "inventory-combine-set",
+                    "build-combine-set-sidecars", "build-combine-set"):
         item = subparsers.add_parser(command)
-        _common(item, selection=command != "check-drugclip-contract")
-        if command in {"build", "build-sidecars"}:
+        _common(item, selection=command != "check-drugclip-contract",
+                combine_set="combine-set" in command)
+        if command in {"build", "build-sidecars", "build-combine-set", "build-combine-set-sidecars"}:
             item.add_argument("--resume", action="store_true")
             item.add_argument("--overwrite-run", action="store_true")
         if command == "download-rcsb":
@@ -152,10 +176,14 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _common(parser, *, selection):
+def _common(parser, *, selection, combine_set=False):
     parser.add_argument("--config", type=Path)
-    parser.add_argument("--index-dir", type=Path)
-    parser.add_argument("--complex-root", type=Path)
+    if combine_set:
+        parser.add_argument("--combine-set-root", type=Path)
+        parser.add_argument("--trust-pickles", action="store_true")
+    else:
+        parser.add_argument("--index-dir", type=Path)
+        parser.add_argument("--complex-root", type=Path)
     parser.add_argument("--workers", type=int)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--fail-fast", action="store_true")
@@ -164,13 +192,15 @@ def _common(parser, *, selection):
         parser.add_argument("--pdb-id", action="append")
         parser.add_argument("--pdb-ids-file", type=Path)
         parser.add_argument("--limit", type=int)
-        parser.add_argument("--year-from", type=int)
-        parser.add_argument("--year-to", type=int)
+        if not combine_set:
+            parser.add_argument("--year-from", type=int)
+            parser.add_argument("--year-to", type=int)
 
 
 def _overrides(args):
     values = {}
     for attribute, key in (("index_dir", "paths.index_dir"), ("complex_root", "paths.complex_root"),
+                           ("combine_set_root", "paths.combine_set_root"),
                            ("workers", "pipeline.workers")):
         value = getattr(args, attribute, None)
         if value is not None:
@@ -181,6 +211,8 @@ def _overrides(args):
         values["pipeline.fail_fast"] = True
     if getattr(args, "no_progress", False):
         values["pipeline.progress"] = False
+    if getattr(args, "trust_pickles", False):
+        values["combine_set.trusted_pickles"] = True
     return values
 
 

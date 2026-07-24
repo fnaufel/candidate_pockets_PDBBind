@@ -366,7 +366,9 @@ def _process_record_geometry(record, info, config, dictionary, source_hash_by_id
         local_rows["pocket_atom_differences"].extend(difference_rows)
         local_rows["ligand_instances"].append(_ligand_row(record, ligand, files))
         local_rows["ligand_components"].extend(ligand_component_rows(ligand))
-        local_rows["pockets"].append(_pocket_row(pocket, protein, comparison_quality, config))
+        local_rows["pockets"].append(_pocket_row(
+            pocket, protein, comparison_quality, config, files.get("protein_pdb")
+        ))
         local_rows["pocket_atoms"].extend(_atom_rows(pocket, dictionary))
         local_rows["pocket_residues"].extend(_residue_rows(pocket))
         local_rows["protein_chains"].extend(_chain_rows(pocket))
@@ -451,6 +453,7 @@ def _complex_base(record, info, config):
         except ValueError:
             directory = Path(directory).as_posix()
     return {"complex_id": record.complex_id, "pdb_id": record.pdb_id, "distribution_id": record.distribution_id,
+        "geometry_origin": "pdbbind_reextracted", "geometry_source_file_id": files.get("protein_pdb"),
         "nominal_complex_set_version": "2020", "structure_processing_version": "2024",
         "index_revision_date": "2025-08-04", "primary_index_line_number": record.primary_index_line_number,
         "index_line_redacted": record.index_line_redacted, "source_line_sha256": record.source_line_sha256,
@@ -593,12 +596,16 @@ def _ligand_row(record, ligand, files):
         "rcsb_ligand_match_overall_status": "not_processed", "warnings": ligand.warnings}
 
 
-def _pocket_row(pocket, protein, comparison_quality, config):
+def _pocket_row(pocket, protein, comparison_quality, config, geometry_source_file_id=None):
     chains = sorted({atom.auth_chain_id for atom in pocket.exported_atoms})
     return {"pocket_instance_id": pocket.pocket_instance_id, "complex_id": pocket.complex_id,
         "ligand_instance_id": pocket.ligand_instance_id, "pdb_id": pocket.pdb_id,
         "pocket_geometry_content_hash": pocket.content_hash, "pocket_derivation_hash": pocket.derivation_hash,
         "extraction_schema_version": config.pipeline.extraction_version,
+        "geometry_origin": "pdbbind_reextracted", "geometry_source_file_id": geometry_source_file_id,
+        "derivation_method": "ligand_distance_contact_atom",
+        "source_geometry_atom_count": len(pocket.residue_expanded_atoms),
+        "source_geometry_heavy_atom_count": sum(atom.element != "H" for atom in pocket.residue_expanded_atoms),
         "distance_cutoff_angstrom": config.pocket.distance_cutoff_angstrom,
         "selected_model_id": protein.selected_model_id, "model_count": protein.model_count,
         "altloc_policy": config.structure.altloc_policy,
@@ -626,6 +633,7 @@ def _atom_rows(pocket, dictionary):
     rows = []
     for atom in pocket.residue_expanded_atoms:
         rows.append({"pocket_instance_id": pocket.pocket_instance_id, "pdbbind_atom_key": atom.pdbbind_atom_key,
+            "source_atom_key": atom.pdbbind_atom_key, "geometry_source_file_id": None,
             "source_order": atom.source_order, "model_id": atom.model_id, "record_type": atom.record_type,
             "auth_chain_id": atom.auth_chain_id, "auth_residue_number": atom.auth_residue_number,
             "insertion_code": atom.insertion_code, "residue_name": atom.residue_name, "atom_name": atom.atom_name,
@@ -639,7 +647,8 @@ def _atom_rows(pocket, dictionary):
             "export_order": retained.get(atom.pdbbind_atom_key),
             "element_supported_by_drugclip": exported_by_key.get(atom.pdbbind_atom_key, atom).element in dictionary,
             "rcsb_atom_mapping_status": "not_processed", "rcsb_label_asym_id": None,
-            "rcsb_label_seq_id": None, "rcsb_atom_id": None, "rcsb_polymer_entity_id": None})
+            "rcsb_label_seq_id": None, "rcsb_atom_id": None, "rcsb_polymer_entity_id": None,
+            "source_mapping_status": "native", "included_in_lmdb_source": atom.pdbbind_atom_key in retained})
     return rows
 
 

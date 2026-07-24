@@ -144,3 +144,18 @@ tier = "none"
 dimension = "geometry_audit"
 severity = "info"
 tier = "none"
+
+[rules.MISSING_COMBINE_SET_NEIGHBOR]
+dimension = "source_integrity"
+severity = "warning"
+tier = "none"
+
+[rules.COMBINE_SET_PICKLE_FAILED]
+dimension = "geometry"
+severity = "error"
+tier = "rejected"
+
+[rules.PICKLE_ATOM_MAPPING_INCOMPLETE]
+dimension = "structure_mapping"
+severity = "warning"
+tier = "none"

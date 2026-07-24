@@ -35,6 +35,17 @@ class PathsConfig:
     biosensia_root: Path | None = None
     drugclip_dictionary: Path | None = None
     drugclip_checkpoint: Path | None = None
+    combine_set_root: Path | None = None
+    combine_set_output_root: Path = Path("data/processed/drugclip_combine_set")
+
+
+@dataclass(slots=True)
+class CombineSetConfig:
+    trusted_pickles: bool = False
+    distribution_id: str = "drugclip-combine-set"
+    nominal_release: str = "unversioned-vendored-snapshot"
+    preserve_source_geometry: bool = True
+    compare_coordinate_tolerance_angstrom: float = 1e-4
 
 
 @dataclass(slots=True)
@@ -145,6 +156,7 @@ class BuildConfig:
     rcsb: RcsbConfig = field(default_factory=RcsbConfig)
     bibliography: BibliographyConfig = field(default_factory=BibliographyConfig)
     lmdb: LmdbConfig = field(default_factory=LmdbConfig)
+    combine_set: CombineSetConfig = field(default_factory=CombineSetConfig)
     project_root: Path = field(default=Path("."), init=False, repr=False)
 
     def as_dict(self) -> dict[str, Any]:
@@ -293,6 +305,10 @@ def _resolve_paths(config: BuildConfig, root: Path) -> None:
         config.paths.drugclip_checkpoint = drugclip / "checkpoint_best.pt"
     elif not config.paths.drugclip_checkpoint.is_absolute():
         config.paths.drugclip_checkpoint = _resolve(root, config.paths.drugclip_checkpoint)
+    if config.paths.combine_set_root is None:
+        config.paths.combine_set_root = drugclip / "data/pdb/combine_set"
+    elif not config.paths.combine_set_root.is_absolute():
+        config.paths.combine_set_root = _resolve(root, config.paths.combine_set_root)
 
     config.quality.rules_file = _resolve(root, config.quality.rules_file)
     config.bibliography.manual_overrides_path = _resolve(root, config.bibliography.manual_overrides_path)
@@ -310,6 +326,10 @@ def _absolute(value: Path) -> Path:
 def _validate(config: BuildConfig) -> None:
     if config.pipeline.workers < 1:
         raise ConfigurationError("pipeline.workers must be at least 1")
+    if not config.combine_set.preserve_source_geometry:
+        raise ConfigurationError("combine_set builds require preserve_source_geometry=true")
+    if config.combine_set.compare_coordinate_tolerance_angstrom <= 0:
+        raise ConfigurationError("combine_set comparison tolerance must be positive")
     if config.pocket.distance_cutoff_angstrom <= 0:
         raise ConfigurationError("pocket.distance_cutoff_angstrom must be positive")
     if config.pocket.max_pocket_atoms < 1:

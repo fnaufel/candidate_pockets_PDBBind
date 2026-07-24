@@ -103,6 +103,7 @@ def _compare_view(pocket, view, extracted, provided, provided_min, source_file_i
     row = {
         "pocket_instance_id": pocket.pocket_instance_id, "comparison_view": view,
         "pdbbind_pocket_file_id": source_file_id, "comparison_status": "compared",
+        "left_geometry_role": "pdbbind_reextracted", "right_geometry_role": "pdbbind_provided_pocket",
         "reextracted_atom_count": len(extracted), "pdbbind_atom_count": len(provided),
         "reextracted_heavy_atom_count": sum(a.element != "H" for a in extracted),
         "pdbbind_heavy_atom_count": sum(a.element != "H" for a in provided),
@@ -191,5 +192,6 @@ def _unavailable_row(pocket, source_file_id, view, status="unavailable"):
     row = {name: None for name in names}
     row.update({"pocket_instance_id": pocket.pocket_instance_id, "comparison_view": view,
                 "pdbbind_pocket_file_id": source_file_id, "comparison_status": status,
+                "left_geometry_role": "pdbbind_reextracted", "right_geometry_role": "pdbbind_provided_pocket",
                 "reextracted_chain_ids": [], "pdbbind_chain_ids": [], "warning_codes": ["PDBBIND_POCKET_COMPARISON_UNAVAILABLE"]})
     return row

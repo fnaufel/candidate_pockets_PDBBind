@@ -51,11 +51,15 @@ def validate_run(run_dir: Path, config: BuildConfig, *, progress: bool = True) -
         prior = derivations.setdefault(pocket["pocket_derivation_hash"], pocket["pocket_geometry_content_hash"])
         if prior != pocket["pocket_geometry_content_hash"]:
             errors.append("A derivation hash maps to multiple content hashes")
+        source_representation = pocket.get("drugclip_export_view") == "source_pickle"
         exported = sorted((row for row in atoms_by_pocket.get(pocket["pocket_instance_id"], [])
-                           if row["retained_after_crop"]), key=lambda row: row["export_order"])
+                           if (row.get("included_in_lmdb_source") if source_representation
+                               else row["retained_after_crop"])),
+                          key=lambda row: row["source_order"] if source_representation else row["export_order"])
         tokens = [row["element"] for row in exported]
         coordinates = np.asarray([[row["x"], row["y"], row["z"]] for row in exported], dtype=np.float32)
-        regenerated = sha256_bytes(length_frame((b"pocket-content-v1", "\0".join(tokens).encode(),
+        content_schema = b"pocket-content-v2-source-pickle" if source_representation else b"pocket-content-v1"
+        regenerated = sha256_bytes(length_frame((content_schema, "\0".join(tokens).encode(),
                                                   normalized_array_bytes(coordinates, "<f4"))))
         if regenerated != pocket["pocket_geometry_content_hash"]:
             errors.append(f"Pocket content hash mismatch: {pocket['pocket_instance_id']}")

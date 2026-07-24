@@ -1,0 +1,960 @@
+---
+title: "Building the DrugCLIP combine_set Candidate-Pocket Library"
+subtitle: "Architecture, data contracts, provenance, validation, and operating guide"
+author: "BioSensIA"
+date: last-modified
+format:
+  html:
+    toc: true
+    toc-depth: 4
+    number-sections: true
+    code-copy: true
+    code-fold: false
+    theme: cosmo
+execute:
+  enabled: false
+---
+
+# Purpose
+
+This document explains the second candidate-pocket library implemented in this
+repository. The first library reconstructs pocket geometry from licensed
+PDBbind protein and ligand structures. The second library starts from the
+bundles below DrugCLIP's vendored directory:
+
+```text
+external/DrugCLIP/data/pdb/combine_set/
+└── <pdb-id>/
+    ├── data.pkl
+    ├── <pdb-id>_ligand.sdf
+    ├── <pdb-id>_ligand.mol2
+    ├── <pdb-id>_protein.pdb
+    ├── <pdb-id>_pocket.pdb
+    └── <pdb-id>_pocket6A.pdb
+```
+
+The goal is not simply to copy pickle files into an LMDB. A usable candidate
+library must also provide stable identity, source checksums, ligand identity,
+chain and residue provenance, explicit mapping uncertainty, Parquet sidecars,
+LMDB checksums, and validation across all artifacts.
+
+The implemented products are:
+
+1. an explicit-schema sidecar collection containing scientific data and
+   provenance;
+2. a DrugCLIP-compatible candidate-pocket LMDB;
+3. profile metadata containing contract and artifact checksums;
+4. a manifest, stage checkpoints, logs, and build reports.
+
+The operational commands are deliberately separate from the original PDBbind
+commands:
+
+```bash
+uv run biosensia-pocket-library inventory-combine-set \
+  --config config/drugclip-combine-set-library.toml \
+  --pdb-id 2h2h
+
+uv run biosensia-pocket-library build-combine-set \
+  --config config/drugclip-combine-set-library.toml \
+  --pdb-id 2h2h
+```
+
+# Why the design changed after inspecting the data
+
+## Initial assumption
+
+The initial design assumed that `data.pkl` might already contain the final
+pocket representation expected by the model: hydrogen-free, bounded to the
+configured maximum number of atoms, and ready to serialize directly through
+the existing post-transform LMDB path.
+
+That assumption was incorrect.
+
+## Observed DrugCLIP behavior
+
+The pickles contain an **input-stage representation**. They commonly retain
+hydrogen and can contain substantially more than the default 256 pocket atoms.
+The vendored DrugCLIP target-fishing path performs the following operations
+after reading an LMDB record:
+
+```{mermaid}
+flowchart LR
+  A[LMDB source record] --> B[AffinityPocketDataset]
+  B --> C[Normalize atom tokens]
+  C --> D[RemoveHydrogenPocketDataset]
+  D --> E[CroppingPocketDataset]
+  E --> F[Normalize coordinates]
+  F --> G[Tokenize and encode]
+```
+
+Therefore, removing hydrogen or cropping while building this second LMDB would
+apply part of the DrugCLIP transformation twice, or would replace DrugCLIP's
+established crop with a different representation. Either change would make the
+new candidate library scientifically different from the original combine-set
+input.
+
+## Revised rule
+
+The revised implementation distinguishes two record representations:
+
+| Representation | Producer | Hydrogen | Atom limit at serialization | Later DrugCLIP transform |
+|---|---|---:|---:|---|
+| `post_transform` | PDBbind re-extraction builder | Excluded | Enforced | No additional atom removal should be needed |
+| `source_pickle` | combine-set builder | Preserved | Not enforced | DrugCLIP removes hydrogen and crops |
+
+This distinction is recorded in `lmdb_records.record_representation`. It is
+also used by the exporter and validator so that a raw source record is not
+rejected for correctly containing hydrogen or more than 256 atoms.
+
+The invariant for the combine-set builder is:
+
+> The ordered `pocket_atoms` sequence and corresponding
+> `pocket_coordinates` array written to LMDB are the validated source-pickle
+> representation, converted only to contiguous little-endian float32
+> coordinates for a deterministic serialization contract.
+
+# Architecture
+
+## Source adapter instead of a second independent application
+
+The implementation adds a source-specific ingestion path but reuses the
+artifact-producing core. This avoids two undesirable extremes:
+
+- inserting combine-set conditions throughout the PDBbind geometry extractor;
+- copying the entire pipeline and allowing validation or serialization behavior
+  to diverge over time.
+
+```{mermaid}
+flowchart TB
+  subgraph PDBBIND[PDBbind source adapter]
+    P1[Index and licensed source inventory]
+    P2[Ligand and protein parsing]
+    P3[Distance-based pocket extraction]
+  end
+
+  subgraph COMBINE[DrugCLIP combine_set source adapter]
+    C1[Directory and checksum inventory]
+    C2[Explicitly trusted pickle validation]
+    C3[Pickle-to-PDB metadata mapping]
+  end
+
+  P1 --> P2 --> P3 --> N[Normalized sidecar rows]
+  C1 --> C2 --> C3 --> N
+
+  N --> S[Atomic Parquet sidecars]
+  S --> L[Representation-aware LMDB export]
+  L --> V[Cross-artifact validation]
+  V --> R[Reports and final manifest]
+```
+
+## Module map
+
+| Module | Responsibility |
+|---|---|
+| `trusted_pickle.py` | Explicit trust gate, pickle loading, field/type/shape/finiteness validation, DrugCLIP token transformation |
+| `combine_set_mapping.py` | Exact ordered and spatial atom mapping from pickle geometry to neighboring pocket PDB files |
+| `combine_set_source.py` | Discovery, selection, source inventory, stable identities, and normalized row production |
+| `combine_set_pipeline.py` | Run orchestration, stage checkpoints, optional RCSB enrichment, sidecars, LMDB, validation, and reports |
+| `schemas.py` | Additive source-neutral sidecar schema v2 |
+| `sidecars.py` | Atomic writes plus compatibility reads for completed schema-v1 runs |
+| `lmdb_export.py` | `source_pickle` and `post_transform` serialization contracts |
+| `validation.py` | Representation-aware content hashes, joins, enums, and LMDB validation |
+| `cli.py` | Dedicated inventory and build commands |
+
+The original `pipeline.py`, ligand parser, DrugCLIP contract verifier, hashing,
+manifest, sidecar, reporting, and LMDB modules remain shared.
+
+# Trust boundary
+
+## Why pickle requires an explicit decision
+
+Python pickle is not a passive data format. Deserializing a malicious payload
+can execute code. Checking a file's extension, placing it in a subprocess, or
+computing its SHA-256 digest does not make it safe.
+
+The builder therefore refuses to deserialize `data.pkl` unless trust is
+explicitly authorized:
+
+```toml
+[combine_set]
+trusted_pickles = true
+```
+
+The same authorization can be made for one CLI invocation:
+
+```bash
+uv run biosensia-pocket-library build-combine-set \
+  --config config/drugclip-combine-set-library.toml \
+  --trust-pickles \
+  --pdb-id 2h2h
+```
+
+This option must be enabled only for the known vendored DrugCLIP snapshot. It
+must not be reused for downloaded or user-supplied pickle files without a
+separate trust decision.
+
+## Inventory is safe before deserialization
+
+`inventory-combine-set` performs directory discovery, file classification,
+size checks, and SHA-256 hashing. It does not call `pickle.load`. This makes it
+possible to audit membership and provenance before authorizing executable
+serialization.
+
+During a build, source inventory and hashing also happen before record
+processing. The resulting manifest records:
+
+- the source kind;
+- the selected record count;
+- every selected file checksum;
+- the aggregate source fingerprint;
+- the fact that trusted pickle execution was authorized.
+
+# Discovery, selection, and source inventory
+
+## Discovery contract
+
+Discovery searches only direct children of the configured combine-set root and
+retains a directory only when it contains a regular `data.pkl` file. Records
+are sorted by normalized directory identifier. Duplicate identifiers are an
+error because a four-character directory name must identify one occurrence in
+this source snapshot.
+
+On the source snapshot used during implementation, discovery found 18,938
+directories containing `data.pkl`. This is a snapshot observation, not a
+hard-coded expected count. The selected file hashes, not the count alone,
+define source identity.
+
+## Deterministic selection
+
+Selection is applied after sorting:
+
+```bash
+# One named occurrence
+uv run biosensia-pocket-library inventory-combine-set \
+  --config config/drugclip-combine-set-library.toml \
+  --pdb-id 2h2h
+
+# First ten sorted occurrences
+uv run biosensia-pocket-library inventory-combine-set \
+  --config config/drugclip-combine-set-library.toml \
+  --limit 10
+
+# IDs from a text file, one per line
+uv run biosensia-pocket-library build-combine-set \
+  --config config/drugclip-combine-set-library.toml \
+  --pdb-ids-file selected-pdb-ids.txt
+```
+
+Unlike the index-driven PDBbind source, this source has no release-year field
+that can support `--year-from` or `--year-to`. Those options are intentionally
+absent from the combine-set commands.
+
+## File roles
+
+Each selected directory is inventoried completely. Expected filenames receive
+specific source kinds:
+
+| Filename | Source role | Primary use |
+|---|---|---|
+| `data.pkl` | `pickle` | Authoritative LMDB pocket geometry and source label |
+| `*_ligand.sdf` | `ligand_sdf` | Primary ligand chemistry and geometry |
+| `*_ligand.mol2` | `ligand_mol2` | Ligand fallback and cross-format comparison |
+| `*_protein.pdb` | `protein_pdb` | Protein provenance and future structure diagnostics |
+| `*_pocket.pdb` | `pocket_pdb` | Candidate source for atom-to-residue mapping |
+| `*_pocket6A.pdb` | `pocket6a_pdb` | Alternative candidate source for atom-to-residue mapping |
+| any other file | `extra` | Retained inventory provenance |
+
+A missing neighboring file creates a processing issue. A missing SDF and MOL2
+together prevents ligand construction. A missing pocket PDB does not change
+the pickle geometry, but it can leave chain and residue mapping unresolved.
+
+# Trusted pickle validation
+
+## Required pocket fields
+
+The loader requires a dictionary with these fields:
+
+```python
+required = {
+    "pocket",
+    "pocket_atoms",
+    "pocket_coordinates",
+}
+```
+
+The `pocket` value must be nonempty and must agree case-insensitively with the
+directory identifier. `pocket_atoms` must be a nonempty sequence of nonempty
+tokens. `pocket_coordinates` must represent exactly one finite numeric
+`(n_atoms, 3)` coordinate array, and both fields must have equal lengths.
+
+Ligand-side `atoms` and `coordinates` fields are also shape-checked when
+present. They are retained as source audit information, while chemical identity
+comes from the neighboring SDF/MOL2 parser.
+
+## Why coordinate layouts are normalized carefully
+
+DrugCLIP data can represent ligand coordinates as more than one conformer. A
+plain `numpy.asarray(value).reshape(...)` would be dangerous because it could
+silently merge conformers or change atom grouping.
+
+The loader accepts only explicit layouts:
+
+- one `(atoms, 3)` numeric array;
+- a numeric `(conformers, atoms, 3)` array;
+- an iterable whose individual items are `(atoms, 3)` arrays.
+
+Pocket geometry must resolve to exactly one coordinate set. Ligand conformers
+do not create multiple pocket instances.
+
+## DrugCLIP token normalization
+
+The active DrugCLIP `AffinityPocketDataset` reduces each source atom token to a
+single dictionary token:
+
+```python
+def drugclip_pocket_token(atom: str) -> str:
+    if atom[0].isdigit() and len(atom) > 1:
+        return atom[1]
+    return atom[0]
+```
+
+For example:
+
+| Source token | DrugCLIP token |
+|---|---|
+| `C` | `C` |
+| `H` | `H` |
+| `1C` | `C` |
+
+Validation checks the transformed tokens against the fingerprinted
+`dict_pkt.txt`. The raw source tokens remain in the LMDB because DrugCLIP owns
+the transformation. This checks compatibility without changing the source
+representation prematurely.
+
+# Ligand identity and geometry
+
+The pickle does not provide a complete, validated ligand identity contract.
+The builder therefore reuses the established ligand parser:
+
+1. try the configured primary format, normally SDF;
+2. fall back to MOL2 if necessary;
+3. require finite three-dimensional coordinates and resolved atomic numbers;
+4. retain disconnected component membership;
+5. derive SMILES, InChI, InChIKey, formula, charge, and molecular weight where
+   RDKit can do so reliably;
+6. compare independently usable SDF and MOL2 structures;
+7. mint ligand content and derivation hashes.
+
+The parsed ligand has two roles in this builder:
+
+- it provides auditable chemical identity;
+- its heavy-atom coordinates support diagnostic pocket-to-ligand distances.
+
+It does **not** redefine membership of the pickle pocket.
+
+# Mapping pickle atoms to structure metadata
+
+## Geometry and metadata have different authority
+
+The pickle is authoritative for model input geometry. The neighboring PDB is a
+metadata source for atom names, residues, chain identifiers, occupancy, and
+B-factors. Mapping can annotate a pickle atom, but it cannot replace its token
+or coordinates.
+
+This separation prevents a plausible neighboring file from silently becoming
+the geometry source merely because it shares a PDB ID.
+
+## Candidate files
+
+Both `*_pocket.pdb` and `*_pocket6A.pdb` are considered. Each is mapped
+independently. The preferred mapping is selected by:
+
+1. greatest mapped-atom count;
+2. smallest maximum coordinate error;
+3. stable lexical source-role tie-break.
+
+The selected role is written to the comparison sidecar. The v2 comparison
+schema also names both sides explicitly:
+
+```text
+left_geometry_role  = drugclip_combine_set_pickle
+right_geometry_role = pocket | pocket6a | neighbor_pocket_unavailable
+```
+
+## Exact ordered mapping
+
+The strongest mapping occurs when all of the following hold:
+
+- the PDB and pickle have equal atom counts;
+- transformed pickle elements equal PDB elements in the same order;
+- every coordinate error is within
+  `combine_set.compare_coordinate_tolerance_angstrom`.
+
+Each atom then receives `source_mapping_status = "exact_ordered"`.
+
+This path is fast and preserves the strongest evidence that a neighboring PDB
+directly describes the pickle array.
+
+## Unique spatial fallback
+
+When ordered equality fails, the mapper groups atoms by normalized element and
+builds a coordinate nearest-neighbor index for each group. A pickle atom is
+accepted only when:
+
+- its nearest same-element PDB atom lies within
+  `structure.coordinate_match_tolerance_angstrom`;
+- there is no equal-distance nearest-neighbor tie;
+- no other pickle atom claims the same PDB atom.
+
+An accepted fallback receives `spatial_unique`. Ties and collisions receive
+`ambiguous`; unmatched atoms receive `unresolved`.
+
+This fallback is intentionally conservative. It does not use residue names or
+the four-character PDB ID to manufacture an atom correspondence.
+
+## Mapping quality versus geometry quality
+
+These dimensions answer different questions:
+
+| Dimension | Question |
+|---|---|
+| Geometry quality | Is the source pickle internally valid and DrugCLIP-compatible? |
+| Source mapping quality | Can its atoms be assigned to neighboring PDB atom metadata? |
+| RCSB structure mapping quality | Can contributing local chains be mapped to validated RCSB/mmCIF entities? |
+
+A valid pickle can remain a usable candidate even when local structure mapping
+is incomplete. The uncertainty is surfaced in mapping columns and
+`processing_issues`; it does not rewrite the geometry.
+
+# Stable identities and hashes
+
+## Complex identity
+
+A combine-set complex ID is derived from:
+
+```text
+distribution ID + normalized directory PDB ID + data.pkl SHA-256
+```
+
+Thus replacing a pickle in place changes the complex identity even if the
+directory name stays the same.
+
+## Pocket content hash
+
+The source-pickle content hash covers the exact ordered source tokens and
+little-endian float32 coordinates:
+
+```text
+length-frame(
+  "pocket-content-v2-source-pickle",
+  NUL-joined ordered atom tokens,
+  contiguous little-endian float32 coordinate bytes
+)
+```
+
+The validator independently regenerates this hash from `pocket_atoms.parquet`.
+
+## Pocket derivation hash
+
+The derivation hash adds the source checksum, source pocket name, explicit
+preservation policy, derivation schema, and content hash. The pocket instance
+ID is minted from the complex ID and derivation hash.
+
+Content equality is not occurrence equality. Two occurrences with identical
+geometry can share a content hash while retaining distinct complex and pocket
+instance IDs.
+
+# Sidecar schema v2
+
+## Additive source-neutral fields
+
+The original schema contains names tied to PDBbind re-extraction. Removing
+those columns would invalidate completed runs and downstream readers. Version 2
+therefore evolves the schema additively.
+
+Important additions include:
+
+| Table | Added fields | Purpose |
+|---|---|---|
+| `complexes` | `geometry_origin`, `geometry_source_file_id` | Identify the authoritative geometry source |
+| `pockets` | `geometry_origin`, `geometry_source_file_id`, `derivation_method`, source atom counts | Explain how geometry entered the library |
+| `pocket_atoms` | `source_atom_key`, `geometry_source_file_id`, `source_mapping_status`, `included_in_lmdb_source` | Separate source ordering and mapping from legacy PDBbind naming |
+| `pocket_comparisons` | `left_geometry_role`, `right_geometry_role` | Name representations without relying on legacy count-column names |
+| `lmdb_records` | `record_representation` | Select the correct serialization validation contract |
+
+New PDBbind and combine-set builds write schema v2. The reader and validator
+continue to accept v1 files when their only difference is the absence of these
+additive columns. Missing v2 fields are materialized as null during a
+compatibility read.
+
+## Core relationships
+
+```{mermaid}
+erDiagram
+  SOURCE_FILES ||--o{ COMPLEXES : geometry_source
+  COMPLEXES ||--o{ LIGAND_INSTANCES : owns
+  COMPLEXES ||--o{ POCKETS : owns
+  LIGAND_INSTANCES ||--o{ POCKETS : defines_context
+  POCKETS ||--o{ POCKET_ATOMS : contains
+  POCKETS ||--o{ POCKET_RESIDUES : maps_to
+  POCKETS ||--o{ PROTEIN_CHAINS : contributes
+  POCKETS ||--o{ LMDB_RECORDS : serializes_as
+```
+
+Primary keys, foreign keys, canonical sort order, and controlled enums are
+validated after writing.
+
+# Representation-aware LMDB export
+
+## Minimal record contract
+
+Every candidate record contains exactly three fields:
+
+```python
+{
+    "pocket": pocket_instance_id,
+    "pocket_atoms": ordered_atom_tokens,
+    "pocket_coordinates": contiguous_little_endian_float32_array,
+}
+```
+
+The original pickle bytes are not copied into the library. The record is
+reconstructed from validated sidecars and serialized with pickle protocol 4.
+This prevents unrelated ligand or label fields from leaking into the candidate
+LMDB and makes the output contract uniform.
+
+## Source-pickle export
+
+For `drugclip_export_view = "source_pickle"`, the exporter:
+
+1. selects atoms with `included_in_lmdb_source = true`;
+2. orders them by `source_order`;
+3. retains raw source tokens, including `H`;
+4. converts coordinates deterministically to contiguous `<f4`;
+5. permits an atom count greater than `pocket.max_pocket_atoms`;
+6. verifies that DrugCLIP's token transformation reaches dictionary-supported
+   tokens.
+
+## Post-transform export
+
+For the existing PDBbind representation, the exporter:
+
+1. selects `retained_after_crop = true`;
+2. orders by `export_order`;
+3. rejects hydrogen;
+4. enforces the configured maximum atom count;
+5. rejects lossy token transformation.
+
+## Dense keys and checksums
+
+LMDB keys are dense ASCII integers:
+
+```text
+0, 1, 2, ..., record_count - 1
+```
+
+Pocket instance IDs determine the canonical record order. Each `lmdb_records`
+row records:
+
+- numeric key and record index;
+- pocket instance and geometry hashes;
+- representation;
+- atom count;
+- serialized record SHA-256;
+- framed logical record SHA-256.
+
+Profile metadata also records the LMDB physical checksum, logical checksum,
+source sidecar checksums, dictionary/task/loader/helper hashes, pickle protocol,
+and map size. Embedding caches must be namespaced or invalidated using the
+logical LMDB checksum.
+
+# Optional RCSB and UniProt enrichment
+
+The dedicated default configuration is offline and sets:
+
+```toml
+[rcsb]
+download_mmcif = false
+```
+
+When enabled, the combine-set pipeline reuses the existing content-addressed
+RCSB mmCIF downloader and mapper after local pickle-to-PDB mapping has
+established contributing chain identifiers.
+
+RCSB enrichment can populate:
+
+- chain mapping candidates;
+- selected RCSB entity mappings;
+- chain-to-UniProt mappings and segments;
+- ligand mapping candidates;
+- structure citations.
+
+Network or mapping failures become `RCSB_ENRICHMENT_FAILED` issues. They cannot
+change source-pickle atom membership, coordinates, content hashes, or LMDB
+eligibility.
+
+# Build orchestration and run identity
+
+## Stage flow
+
+```{mermaid}
+flowchart TD
+  A[Discover sorted data.pkl occurrences] --> B[Apply ID and limit selection]
+  B --> C[Verify DrugCLIP library contract]
+  C --> D[Hash every selected bundle file]
+  D --> E[Compute source and selection fingerprints]
+  E --> F[Create unique run directory]
+  F --> G[Load and validate trusted pickles]
+  G --> H[Parse ligands and map atoms]
+  H --> I[Optional RCSB enrichment]
+  I --> J[Write all sidecars atomically]
+  J --> K[Export and validate LMDB]
+  K --> L[Validate joins, hashes, and enums]
+  L --> M[Generate reports and finalize manifest]
+```
+
+## Run directory name
+
+The run ID exposes abbreviated fingerprints:
+
+```text
+dc-combine-v1-<semantic8>-<source8>-<selection8>-<contract8>
+```
+
+The full values remain in `manifest.json`.
+
+The semantic configuration hash covers content-affecting configuration,
+including trust/preservation policy and quality rules. Source paths do not enter
+that hash because selected contents are independently fingerprinted. Worker
+count and progress display are operational settings and do not alter logical
+outputs.
+
+## Resume and overwrite
+
+`--resume` accepts an existing run only when semantic, source, selection, and
+DrugCLIP contract fingerprints all match. A complete compatible run is returned
+without rebuilding.
+
+`--overwrite-run` does not delete an existing run. It first moves it to a
+timestamped sibling backup, then creates the new run at the identity-derived
+path.
+
+# Configuration guide
+
+The supplied configuration is
+`config/drugclip-combine-set-library.toml`. Its essential source-specific
+settings are:
+
+```toml
+[paths]
+combine_set_root = "BioSensIA-DC/external/DrugCLIP/data/pdb/combine_set"
+combine_set_output_root = "data/processed/drugclip_combine_set"
+drugclip_dir = "BioSensIA-DC/external/DrugCLIP"
+drugclip_dictionary = "BioSensIA-DC/external/DrugCLIP/data/dict_pkt.txt"
+
+[combine_set]
+trusted_pickles = true
+distribution_id = "drugclip-combine-set"
+nominal_release = "unversioned-vendored-snapshot"
+preserve_source_geometry = true
+compare_coordinate_tolerance_angstrom = 0.0001
+```
+
+`preserve_source_geometry = false` is rejected. The current builder has no mode
+that silently filters or crops source pickle geometry.
+
+# Operating guide
+
+## 1. Install and verify the environment
+
+```bash
+uv sync
+
+uv run biosensia-pocket-library check-drugclip-contract \
+  --config config/drugclip-combine-set-library.toml
+```
+
+The contract check fingerprints the pocket dictionary, DrugCLIP task, relevant
+loader wrappers, and BioSensIA LMDB helper. It reports but does not hash the
+encoder checkpoint because the checkpoint is not a library-construction input.
+
+## 2. Inventory without deserializing
+
+```bash
+uv run biosensia-pocket-library inventory-combine-set \
+  --config config/drugclip-combine-set-library.toml \
+  --pdb-id 2h2h
+```
+
+The implementation-time `2h2h` inventory reported one selected bundle, six
+files, and no inventory issues.
+
+## 3. Build a small audit selection
+
+```bash
+uv run biosensia-pocket-library build-combine-set \
+  --config config/drugclip-combine-set-library.toml \
+  --limit 10
+```
+
+Use a small deterministic selection before a full run to verify local paths,
+available memory, ligand parsing behavior, and expected mapping quality.
+
+## 4. Build sidecars without LMDB
+
+```bash
+uv run biosensia-pocket-library build-combine-set-sidecars \
+  --config config/drugclip-combine-set-library.toml \
+  --pdb-ids-file selected-pdb-ids.txt
+```
+
+This produces a `sidecars_complete` run. The shared `finalize` command can later
+export the default LMDB and finish validation and reporting.
+
+## 5. Build the complete selected library
+
+```bash
+uv run biosensia-pocket-library build-combine-set \
+  --config config/drugclip-combine-set-library.toml \
+  --pdb-ids-file selected-pdb-ids.txt
+```
+
+Omit all selection arguments to select every discovered `data.pkl` occurrence.
+
+## 6. Validate independently
+
+```bash
+uv run biosensia-pocket-library validate \
+  --run-dir data/processed/drugclip_combine_set/<run-id>
+```
+
+## 7. Regenerate reports
+
+```bash
+uv run biosensia-pocket-library report \
+  --run-dir data/processed/drugclip_combine_set/<run-id>
+```
+
+# Output layout
+
+```text
+data/processed/drugclip_combine_set/<run-id>/
+├── config.resolved.toml
+├── manifest.json
+├── checkpoints/
+├── logs/
+├── sidecars/
+│   ├── source_files.parquet
+│   ├── complexes.parquet
+│   ├── ligand_instances.parquet
+│   ├── pockets.parquet
+│   ├── pocket_atoms.parquet
+│   ├── pocket_residues.parquet
+│   ├── protein_chains.parquet
+│   ├── pocket_comparisons.parquet
+│   ├── processing_issues.parquet
+│   ├── lmdb_records.parquet
+│   └── ...
+├── lmdb/
+│   ├── candidate_pockets.lmdb
+│   └── candidate_pockets.lmdb.profile.json
+└── reports/
+    ├── build_summary.json
+    ├── build_summary.md
+    └── *.parquet
+```
+
+Coordinate-bearing outputs inherit the source data's access and redistribution
+constraints and must not be committed or redistributed without authorization.
+
+# Validation model
+
+Validation is layered so that a checksum alone cannot make an invalid library
+appear sound.
+
+## Source-record validation
+
+- explicitly authorized pickle execution;
+- dictionary record type;
+- required pocket fields;
+- one finite pocket coordinate set;
+- equal atom and coordinate counts;
+- nonempty pocket name matching the directory;
+- transformed token coverage by the active dictionary.
+
+## Sidecar validation
+
+- exact current schema or compatible additive v1 schema;
+- canonical row order;
+- primary-key uniqueness;
+- controlled enum values;
+- foreign-key integrity;
+- accepted pockets have atom rows;
+- derivation hashes map consistently to content hashes;
+- regenerated geometry hashes match pocket rows.
+
+## LMDB validation
+
+- dense numeric keys;
+- entry count equals `lmdb_records` count;
+- exact three-field record shape;
+- pocket name equals the sidecar-ordered pocket instance ID;
+- contiguous little-endian float32 coordinates;
+- finite `(n_atoms, 3)` geometry;
+- representation-specific hydrogen, token, and atom-count rules.
+
+## Manifest and artifact validation
+
+- run-directory name equals manifest run ID;
+- source, selection, semantic, and DrugCLIP contract fingerprints are recorded;
+- profile metadata contains sidecar and LMDB hashes;
+- final artifact inventory records physical file sizes and SHA-256 values.
+
+# Test strategy and observed evidence
+
+## Synthetic tests
+
+The synthetic end-to-end fixture deliberately creates a source pickle with:
+
+- atoms `C`, `H`, and `N`;
+- three coordinates;
+- a configured post-transform maximum of two atoms;
+- an exactly matching pocket PDB;
+- a valid ligand SDF;
+- a DrugCLIP affinity label.
+
+The test proves that:
+
+- trust is mandatory;
+- nonfinite pickle coordinates are rejected;
+- exact ordered mapping succeeds;
+- the source atom count remains three;
+- hydrogen remains present in the serialized LMDB;
+- the two-atom post-transform limit does not reject a `source_pickle` record;
+- the serialized coordinate array is contiguous little-endian float32;
+- complete run validation succeeds.
+
+Additional tests cover CLI parsing, automatic LMDB map growth, schema-v1
+compatibility, existing PDBbind behavior, deterministic worker-count outputs,
+and finalization.
+
+At the time this document was written, the complete test suite reported:
+
+```text
+33 passed
+```
+
+## Real-source verification
+
+The final implementation was exercised against the real `2h2h` bundle. The
+run reported:
+
+| Metric | Value |
+|---|---:|
+| Source pickle atoms | 480 |
+| Source heavy atoms | 238 |
+| Hydrogen retained in candidate LMDB | yes |
+| Atoms mapped to neighboring PDB | 480 |
+| Local mapping quality | exact |
+| Pocket comparison quality | concordant |
+| LMDB record representation | `source_pickle` |
+| Independent run validation | passed |
+
+These values are verification evidence for that source occurrence, not global
+assumptions about all 18,938 discovered pickles.
+
+# Performance and scaling
+
+## Bounded processing concurrency
+
+`pipeline.workers` controls source-record processing. The bounded scheduler
+submits at most that many jobs and yields completed jobs without waiting for an
+earlier slow record. Canonical sidecar sorting ensures that worker completion
+order does not change logical outputs.
+
+## Memory planning
+
+The current shared sidecar architecture materializes selected normalized rows
+before the atomic Parquet write and reads atom sidecars during LMDB export and
+validation. Raw combine-set pockets can contain many atoms, including hydrogen.
+Consequently, a full-source run needs materially more memory and storage than a
+small audit selection.
+
+Before a full run:
+
+1. build representative `--limit` selections;
+2. inspect pocket-size reports and peak memory;
+3. confirm output and temporary filesystem capacity;
+4. choose workers based on memory, not CPU count alone;
+5. retain the run's resolved configuration and inventory output.
+
+This is an operational scaling constraint, not a reason to discard source
+atoms. A future streaming sidecar writer must preserve the same ordering,
+hashing, relational, and atomic-publication contracts.
+
+# Troubleshooting
+
+## Refusal to deserialize pickle
+
+```text
+combine_set builds require combine_set.trusted_pickles=true
+```
+
+Confirm that the configured root is the trusted vendored DrugCLIP snapshot,
+then use the dedicated configuration or the explicit CLI flag. Do not bypass
+the check for an unknown source.
+
+## Pickle shape or finiteness error
+
+The record is rejected and listed in `processing_issues.parquet`. Do not reshape
+or truncate the record manually. Determine whether the source snapshot is
+corrupt or whether a new coordinate layout needs an explicit, tested parser.
+
+## Dictionary lacks transformed tokens
+
+The active `dict_pkt.txt` is incompatible with the selected source record or
+the configured DrugCLIP checkout. Verify the symlink, contract fingerprint, and
+dictionary provenance before considering a token policy change.
+
+## Incomplete atom mapping
+
+Inspect:
+
+- `pocket_atoms.source_mapping_status`;
+- `pocket_comparisons.left_geometry_role` and `right_geometry_role`;
+- coordinate tolerances in resolved configuration;
+- the neighboring `pocket.pdb` and `pocket6A.pdb` source checksums.
+
+An incomplete mapping does not imply invalid pickle geometry. It means that
+residue or chain annotations are incomplete and must not be guessed.
+
+## Existing run already present
+
+Use `--resume` only for an identical run identity. Use `--overwrite-run` to
+preserve the old directory as a timestamped backup before rebuilding.
+
+## Validation reports a content-hash mismatch
+
+The atom sidecar and pocket row disagree. Treat the run as invalid. Do not edit
+Parquet or LMDB artifacts in place; rebuild from the fingerprinted sources.
+
+# Scientific interpretation
+
+This library is a provenance-preserving projection of DrugCLIP combine-set
+pocket inputs. It does not claim that every neighboring structure file is an
+independent experimental validation of the pickle geometry, nor that a PDB ID
+uniquely identifies a binding site or chain.
+
+The implementation deliberately keeps these claims separate:
+
+- source pickle geometry is preserved as model input;
+- local PDB mapping supplies evidence-backed structural annotations;
+- SDF/MOL2 parsing supplies ligand identity;
+- RCSB supplies optional external structure and UniProt mappings;
+- content hashes identify geometry bytes;
+- instance IDs identify retained source occurrences;
+- quality and mapping statuses expose uncertainty without silently changing
+  the geometry.
+
+That separation is the central design principle of the second candidate-pocket
+library.

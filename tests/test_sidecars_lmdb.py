@@ -7,7 +7,7 @@ import pyarrow.parquet as pq
 from biosensia_pocket_library.config import load_config
 from biosensia_pocket_library.lmdb_export import _write_lmdb, export_lmdb, validate_lmdb
 from biosensia_pocket_library.schemas import TABLES
-from biosensia_pocket_library.sidecars import write_sidecars
+from biosensia_pocket_library.sidecars import ADDITIVE_V2_COLUMNS, read_sidecar, validate_sidecars, write_sidecars
 
 
 def test_empty_tables_use_explicit_schemas(tmp_path: Path):
@@ -53,3 +53,14 @@ def test_auto_sized_lmdb_recovers_from_map_full(tmp_path: Path):
             assert transaction.stat()["entries"] == len(payloads)
     finally:
         environment.close()
+
+
+def test_additive_v1_sidecars_remain_readable_and_valid(tmp_path: Path):
+    write_sidecars(tmp_path, {}, progress=False)
+    for name, additions in ADDITIVE_V2_COLUMNS.items():
+        path = tmp_path / f"{name}.parquet"
+        table = pq.read_table(path)
+        pq.write_table(table.select([column for column in table.column_names if column not in additions]), path)
+
+    assert validate_sidecars(tmp_path) == []
+    assert all(row == [] for row in [read_sidecar(tmp_path, name) for name in TABLES])
