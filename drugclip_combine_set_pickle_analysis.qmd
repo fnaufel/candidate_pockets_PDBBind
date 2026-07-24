@@ -1,0 +1,463 @@
+---
+title: "What is in DrugCLIP's PDBbind `data.pkl` files?"
+subtitle: "A reproducible sample audit and candidate-pocket-library feasibility study"
+date: 2026-07-24
+lang: en
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+execute:
+  echo: true
+  warning: false
+  cache: false
+jupyter: python3
+---
+
+## Purpose
+
+DrugCLIP's `external/DrugCLIP/data/pdb/combine_set` directory contains one
+directory per PDBbind complex.  A typical directory includes `data.pkl`, a
+ligand in SDF and MOL2 formats, a protein PDB, and one or more pocket PDBs.
+This notebook asks three related questions:
+
+1. What objects and fields occur in a reproducible random sample of 100
+   pickles?
+2. Do their ligand and pocket atom arrays agree with the neighboring structure
+   files?
+3. Can these bundles serve as source material for the candidate-pocket library
+   specified for BioSensIA-DC?
+
+Pickle is code-executing serialization, so the notebook assumes that this
+vendored DrugCLIP dataset is trusted.  Do not run the loader on untrusted
+pickles.
+
+## Setup and reproducible sampling
+
+```{python}
+#| label: setup
+
+from __future__ import annotations
+
+import hashlib
+import json
+import pickle
+import random
+from collections import Counter
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import polars as pl
+
+import itables
+itables.init_notebook_mode(all_interactive=True)
+
+COMBINE_SET = Path("external/DrugCLIP/data/pdb/combine_set")
+SAMPLE_SIZE = 1000
+RANDOM_SEED = 20260724
+COORDINATE_ATOL = 1e-4
+
+all_pickle_paths = sorted(COMBINE_SET.glob("*/data.pkl"))
+if not all_pickle_paths:
+    raise FileNotFoundError(f"No data.pkl files found below {COMBINE_SET}")
+
+rng = random.Random(RANDOM_SEED)
+sample_paths = sorted(rng.sample(all_pickle_paths, min(SAMPLE_SIZE, len(all_pickle_paths))))
+
+pl.DataFrame(
+    {
+        "metric": [
+            "complex directories with data.pkl",
+            "sampled files",
+            "random seed",
+        ],
+        "value": [len(all_pickle_paths), len(sample_paths), RANDOM_SEED],
+    }
+)
+```
+
+Sorting before sampling and fixing the seed makes the audit repeatable as long
+as directory membership is unchanged.  The sample is useful for exploration,
+but it is not an integrity certificate for the full collection; a production
+builder must validate every selected record.
+
+## Load and describe the pickles
+
+The helpers below normalize the two coordinate layouts seen in DrugCLIP data:
+the ligand may contain one or more conformers, whereas the pocket is normally a
+single atom-by-three array.  Validation is deliberately explicit so malformed
+records fail visibly rather than being silently reshaped.
+
+```{python}
+#| label: pickle-helpers
+
+def load_trusted_pickle(path: Path) -> dict[str, Any]:
+    with path.open("rb") as handle:
+        record = pickle.load(handle)
+    if not isinstance(record, dict):
+        raise TypeError(f"{path}: expected dict, found {type(record).__name__}")
+    return record
+
+
+def coordinate_arrays(value: Any, *, field: str, path: Path) -> list[np.ndarray]:
+    """Return one or more finite (atoms, 3) arrays without changing atom order."""
+    array = np.asarray(value)
+    if array.dtype != object and array.ndim == 2 and array.shape[1] == 3:
+        arrays = [array.astype(float)]
+    elif array.dtype != object and array.ndim == 3 and array.shape[2] == 3:
+        arrays = [item.astype(float) for item in array]
+    else:
+        arrays = [np.asarray(item, dtype=float) for item in value]
+    if not arrays or any(item.ndim != 2 or item.shape[1] != 3 for item in arrays):
+        raise ValueError(f"{path}: {field} is not one or more (n, 3) arrays")
+    if not all(np.isfinite(item).all() for item in arrays):
+        raise ValueError(f"{path}: {field} contains non-finite coordinates")
+    return arrays
+
+
+sample_records = [(path, load_trusted_pickle(path)) for path in sample_paths]
+field_counts = Counter(field for _, record in sample_records for field in record)
+
+pl.DataFrame(
+    {
+        "field": sorted(field_counts),
+        "records containing field": [field_counts[field] for field in sorted(field_counts)],
+        "percent of sample": [
+            100 * field_counts[field] / len(sample_records) for field in sorted(field_counts)
+        ],
+    }
+)
+```
+
+```{python}
+#| label: record-summary
+
+summary_rows = []
+for path, record in sample_records:
+    ligand_atoms = list(record.get("atoms", []))
+    pocket_atoms = list(record.get("pocket_atoms", []))
+    ligand_conformers = coordinate_arrays(record["coordinates"], field="coordinates", path=path)
+    pocket_conformers = coordinate_arrays(
+        record["pocket_coordinates"], field="pocket_coordinates", path=path
+    )
+    label = record.get("label")
+    summary_rows.append(
+        {
+            "pdb_id": path.parent.name,
+            "pickle_pocket_id": record.get("pocket"),
+            "field_count": len(record),
+            "ligand_atoms": len(ligand_atoms),
+            "ligand_conformers": len(ligand_conformers),
+            "ligand_shapes_valid": all(len(ligand_atoms) == len(x) for x in ligand_conformers),
+            "pocket_atoms": len(pocket_atoms),
+            "pocket_coordinate_sets": len(pocket_conformers),
+            "pocket_shapes_valid": all(len(pocket_atoms) == len(x) for x in pocket_conformers),
+            "label_kind": label[0] if isinstance(label, tuple) and len(label) == 2 else None,
+            "label_value": label[1] if isinstance(label, tuple) and len(label) == 2 else None,
+        }
+    )
+
+summary = pl.DataFrame(summary_rows)
+summary.head(10)
+```
+
+```{python}
+#| label: descriptive-statistics
+
+display(
+    summary.select("ligand_atoms", "ligand_conformers", "pocket_atoms").describe(
+        percentiles=[0.05, 0.25, 0.5, 0.75, 0.95]
+    )
+)
+display(
+    summary.select(
+        pl.col("pdb_id").n_unique().alias("unique directory PDB IDs"),
+        (
+            pl.col("pickle_pocket_id").str.to_lowercase()
+            == pl.col("pdb_id").str.to_lowercase()
+        )
+        .sum()
+        .alias("pickle ID equals directory ID"),
+        pl.col("ligand_shapes_valid")
+        .sum()
+        .alias("valid ligand atom/coordinate shapes"),
+        pl.col("pocket_shapes_valid")
+        .sum()
+        .alias("valid pocket atom/coordinate shapes"),
+    ).unpivot(variable_name="metric", value_name="records")
+)
+display(
+    summary.group_by("label_kind", maintain_order=True)
+    .agg(pl.len().alias("records"))
+    .sort("records", descending=True)
+)
+```
+
+The expected core schema is `atoms` plus `coordinates` for the ligand and
+`pocket_atoms` plus `pocket_coordinates` for the pocket.  `pocket` is a PDB-like
+name, while `label` contains the measurement type and the transformed affinity
+used during training.  The shape checks are more consequential for library
+construction than the affinity: candidate retrieval needs a valid pocket atom
+sequence and matching coordinates, but it does not require an affinity label.
+
+The descriptive table also exposes size outliers and multiple ligand
+conformers.  Those conformers belong to the ligand half of the training pair;
+they must not be mistaken for multiple candidate pocket instances.
+
+## Compare each pickle with its neighboring structure files
+
+The PDB comparison preserves file order and PDB atom names.  The SDF parser
+reads the V2000 atom block, preserving element order and coordinates.  Exact
+ordered comparison is intentionally strict: it answers whether a sidecar is a
+faithful reconstruction source, not merely whether the structures overlap in
+space.
+
+```{python}
+#| label: structure-readers
+
+def read_pdb_atoms(path: Path) -> tuple[list[str], np.ndarray]:
+    names, coordinates = [], []
+    with path.open(encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if line[:6].strip() not in {"ATOM", "HETATM"}:
+                continue
+            names.append(line[12:16].strip())
+            coordinates.append(
+                (float(line[30:38]), float(line[38:46]), float(line[46:54]))
+            )
+    return names, np.asarray(coordinates, dtype=float).reshape((-1, 3))
+
+
+def read_sdf_v2000(path: Path) -> tuple[list[str], np.ndarray]:
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    if len(lines) < 4 or "V2000" not in lines[3]:
+        raise ValueError(f"{path}: this audit expects an SDF V2000 counts line")
+    atom_count = int(lines[3][:3])
+    atom_lines = lines[4 : 4 + atom_count]
+    elements = [line[31:34].strip() for line in atom_lines]
+    coordinates = np.asarray(
+        [[float(line[0:10]), float(line[10:20]), float(line[20:30])] for line in atom_lines]
+    )
+    return elements, coordinates
+
+
+def ordered_geometry_comparison(
+    left_atoms: list[str], left_xyz: np.ndarray, right_atoms: list[str], right_xyz: np.ndarray
+) -> dict[str, Any]:
+    shape_equal = left_xyz.shape == right_xyz.shape
+    atoms_equal = list(left_atoms) == list(right_atoms)
+    coordinates_equal = bool(
+        shape_equal and np.allclose(left_xyz, right_xyz, atol=COORDINATE_ATOL, rtol=0)
+    )
+    max_error = (
+        float(np.max(np.abs(left_xyz - right_xyz))) if shape_equal and left_xyz.size else np.nan
+    )
+    return {
+        "atom_count_equal": len(left_atoms) == len(right_atoms),
+        "ordered_atoms_equal": atoms_equal,
+        "coordinate_shape_equal": shape_equal,
+        "coordinates_equal": coordinates_equal,
+        "ordered_geometry_equal": atoms_equal and coordinates_equal,
+        "maximum_absolute_coordinate_error_A": max_error,
+    }
+```
+
+```{python}
+#| label: compare-sidecars
+
+comparison_rows = []
+for path, record in sample_records:
+    directory = path.parent
+    pdb_id = directory.name
+    ligand_path = next(iter(sorted(directory.glob("*_ligand.sdf"))), None)
+    pocket_path = next(iter(sorted(directory.glob("*_pocket.pdb"))), None)
+    pocket_6a_path = next(iter(sorted(directory.glob("*_pocket6A.pdb"))), None)
+
+    ligand_xyz = coordinate_arrays(record["coordinates"], field="coordinates", path=path)[0]
+    pocket_xyz = coordinate_arrays(
+        record["pocket_coordinates"], field="pocket_coordinates", path=path
+    )[0]
+    pickle_ligand_atoms = list(record["atoms"])
+    pickle_pocket_atoms = list(record["pocket_atoms"])
+
+    for role, file_path in (("pocket", pocket_path), ("pocket6A", pocket_6a_path)):
+        if file_path is None:
+            comparison_rows.append({"pdb_id": pdb_id, "role": role, "file_available": False})
+        else:
+            file_atoms, file_xyz = read_pdb_atoms(file_path)
+            result = ordered_geometry_comparison(
+                pickle_pocket_atoms, pocket_xyz, file_atoms, file_xyz
+            )
+            comparison_rows.append(
+                {"pdb_id": pdb_id, "role": role, "file_available": True, **result}
+            )
+
+    if ligand_path is None:
+        comparison_rows.append(
+            {"pdb_id": pdb_id, "role": "ligand_sdf", "file_available": False}
+        )
+    else:
+        ligand_file_atoms, ligand_file_xyz = read_sdf_v2000(ligand_path)
+        ligand_result = ordered_geometry_comparison(
+            pickle_ligand_atoms, ligand_xyz, ligand_file_atoms, ligand_file_xyz
+        )
+        comparison_rows.append(
+            {
+                "pdb_id": pdb_id,
+                "role": "ligand_sdf",
+                "file_available": True,
+                **ligand_result,
+            }
+        )
+
+comparisons = pl.DataFrame(comparison_rows)
+comparisons.group_by("role").agg(
+    pl.len().alias("records"),
+    pl.col("file_available").sum().alias("files_available"),
+    pl.col("atom_count_equal").sum().alias("atom_count_matches"),
+    pl.col("ordered_atoms_equal").sum().alias("ordered_atom_matches"),
+    pl.col("coordinates_equal").sum().alias("coordinate_matches"),
+    pl.col("ordered_geometry_equal").sum().alias("full_ordered_geometry_matches"),
+    pl.col("maximum_absolute_coordinate_error_A")
+    .median()
+    .alias("median_maximum_error_A"),
+).sort("role")
+```
+
+```{python}
+#| label: mismatch-examples
+
+comparisons.filter(
+    pl.col("ordered_geometry_equal").ne(True).fill_null(True)
+).select(
+    [
+        "pdb_id",
+        "role",
+        "file_available",
+        "atom_count_equal",
+        "ordered_atoms_equal",
+        "coordinate_shape_equal",
+        "coordinates_equal",
+        "maximum_absolute_coordinate_error_A",
+    ]
+).head(15)
+```
+
+An ordered geometry match means that the pickle can be traced directly to that
+file at the stated tolerance.  A count-only match is weak evidence: atoms can
+be reordered, renamed, protonated differently, or placed differently.  In
+particular, `pocket.pdb` and `pocket6A.pdb` are alternative pocket definitions;
+the summary tells us which, if either, generated `pocket_atoms` and
+`pocket_coordinates`.  The ligand comparison uses only the first pickled
+conformer because an SDF carries one coordinate block here; additional pickled
+conformers should be audited separately if they will be retained.
+
+Failures do not prove that the files describe unrelated chemistry.  They prove
+that substituting one representation for another would require an explicit
+mapping or spatial validation rather than an assumption based on PDB ID.
+
+## Candidate-pocket-library feasibility
+
+The BioSensIA-DC specification makes the selected
+`candidate_pockets_PDBBind` run authoritative.  Its candidate LMDB must retain
+distinct pocket instances and be accompanied by profile metadata plus
+`lmdb_records`, `pockets`, `protein_chains`, `chain_uniprot_mappings`, and
+`ligand_instances` sidecars.  Every selected record must have stable identity,
+provenance, join integrity, a logical digest, and DrugCLIP-compatible pocket
+atoms and coordinates.
+
+The following audit separates facts available directly from a pickle from
+facts that require neighboring files or a downstream enrichment/build step.
+
+```{python}
+#| label: feasibility-audit
+
+required_pickle_fields = {"pocket", "pocket_atoms", "pocket_coordinates"}
+feasibility_rows = []
+for path, record in sample_records:
+    pdb_id = path.parent.name
+    pocket_sets = coordinate_arrays(
+        record["pocket_coordinates"], field="pocket_coordinates", path=path
+    )
+    pickle_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+    feasibility_rows.append(
+        {
+            "pdb_id": pdb_id,
+            "has_drugclip_pocket_fields": required_pickle_fields <= record.keys(),
+            "one_pocket_coordinate_set": len(pocket_sets) == 1,
+            "pocket_shape_valid": len(record["pocket_atoms"]) == len(pocket_sets[0]),
+            "finite_pocket_coordinates": bool(np.isfinite(pocket_sets[0]).all()),
+            "has_ligand_identity_fields": any(
+                key in record for key in ("smiles", "inchi", "inchikey", "ligand_instance_id")
+            ),
+            "has_chain_or_uniprot_fields": any(
+                key in record for key in ("chain", "chains", "uniprot", "uniprot_id")
+            ),
+            "source_pickle_sha256": pickle_sha256,
+        }
+    )
+
+feasibility = pl.DataFrame(feasibility_rows)
+feasibility.select(
+    pl.col(pl.Boolean).sum()
+).unpivot(variable_name="condition", value_name="records satisfying condition")
+```
+
+```{python}
+#| label: proposed-source-plan
+
+source_plan = pl.DataFrame(
+    [
+        ("DrugCLIP pocket atom sequence and coordinates", "data.pkl", "direct, validate every row"),
+        ("PDB/PDBbind provenance", "directory name + release metadata", "derive and record"),
+        ("Ligand coordinates", "data.pkl; compare with ligand SDF/MOL2", "direct but conformer-aware"),
+        ("Ligand chemical identity", "ligand SDF/MOL2", "derive canonical identifiers"),
+        ("Pocket residues and contributing chains", "pocket/protein PDB + spatial mapping", "derive; do not infer from PDB ID alone"),
+        ("Chain-to-UniProt mappings", "validated structure mapping source", "external enrichment required"),
+        ("Pocket and ligand instance IDs", "deterministic builder policy", "must be minted"),
+        ("Geometry quality and processing issues", "validation pipeline", "must be computed"),
+        ("LMDB/profile digests and record order", "final serialized library", "must be computed after selection"),
+    ],
+    schema=["library requirement", "possible source", "assessment"],
+    orient="row",
+)
+source_plan
+```
+
+### Conclusion
+
+The pickles are plausible **geometry inputs**, not a complete candidate-pocket
+library.  When the feasibility counts show valid, finite, aligned pocket arrays,
+those arrays can be serialized through DrugCLIP's existing pocket path without
+reconstructing coordinates from PDB text.  This preserves the representation
+closest to the training data.
+
+The neighboring files are still necessary.  The ligand SDF/MOL2 can establish
+chemical identity and help define a ligand instance; pocket and protein PDBs
+can supply residues and chains after atom-level or spatial validation.  Chain
+to UniProt mapping requires a validated mapping source.  None of those joins
+should be made from the four-character PDB ID alone, because a complex can
+contain several chains and a PDB ID is not a unique pocket-instance identity.
+
+A consistent production path is therefore:
+
+1. enumerate the intended PDBbind release and record its provenance;
+2. validate every selected pickle's required fields, finiteness, and shapes;
+3. mint a unique `ligand_instance_id` and `pocket_instance_id` for each retained
+   occurrence, without collapsing duplicate geometries or shared PDB IDs;
+4. retain the pickled pocket atom order and coordinates as the model input;
+5. derive ligand identity from SDF/MOL2 and map pocket atoms spatially to the
+   accompanying protein structure to determine contributing chains;
+6. enrich those chains with validated UniProt mappings, recording ambiguity
+   and failures in `processing_issues` rather than guessing;
+7. write the candidate LMDB and all required sidecars as one atomic run, then
+   compute the physical and logical hashes and profile metadata over the final
+   ordered records; and
+8. run the specification's uniqueness, join, dense-key, identity, checksum,
+   and finiteness validations before treating the run as authoritative.
+
+Thus `combine_set` can seed the library, with `data.pkl` preferred for exact
+DrugCLIP pocket geometry and the adjacent files used for validated provenance
+and enrichment.  It cannot, by itself, satisfy the full library contract.

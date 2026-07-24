@@ -11,6 +11,10 @@ format:
     code-copy: true
     code-fold: false
     theme: cosmo
+  pdf:
+    toc: true
+    number-sections: true
+
 execute:
   enabled: false
 ---
@@ -78,7 +82,7 @@ The vendored DrugCLIP target-fishing path performs the following operations
 after reading an LMDB record:
 
 ```{mermaid}
-flowchart LR
+flowchart TD
   A[LMDB source record] --> B[AffinityPocketDataset]
   B --> C[Normalize atom tokens]
   C --> D[RemoveHydrogenPocketDataset]
@@ -127,22 +131,22 @@ artifact-producing core. This avoids two undesirable extremes:
 ```{mermaid}
 flowchart TB
   subgraph PDBBIND[PDBbind source adapter]
-    P1[Index and licensed source inventory]
+    P1[Index and licensed<br />source inventory]
     P2[Ligand and protein parsing]
-    P3[Distance-based pocket extraction]
+    P3[Distance-based<br />pocket extraction]
   end
 
   subgraph COMBINE[DrugCLIP combine_set source adapter]
-    C1[Directory and checksum inventory]
-    C2[Explicitly trusted pickle validation]
-    C3[Pickle-to-PDB metadata mapping]
+    C1[Directory and checksum<br />inventory]
+    C2[Explicitly trusted<br />pickle validation]
+    C3[Pickle-to-PDB<br />metadata mapping]
   end
 
   P1 --> P2 --> P3 --> N[Normalized sidecar rows]
   C1 --> C2 --> C3 --> N
 
   N --> S[Atomic Parquet sidecars]
-  S --> L[Representation-aware LMDB export]
+  S --> L[Representation-aware<br />LMDB export]
   L --> V[Cross-artifact validation]
   V --> R[Reports and final manifest]
 ```
