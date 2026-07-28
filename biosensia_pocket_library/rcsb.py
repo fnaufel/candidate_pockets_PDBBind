@@ -14,7 +14,14 @@ import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from .config import BuildConfig
-from .hashing import atomic_write_bytes, canonical_json_bytes, sha256_bytes, sha256_file, stable_id
+from .hashing import (
+    atomic_write_bytes,
+    canonical_json_bytes,
+    canonical_json_hash,
+    sha256_bytes,
+    sha256_file,
+    stable_id,
+)
 from .progress import track
 
 
@@ -87,6 +94,70 @@ def download_mmcif_files(pdb_ids: list[str], config: BuildConfig, *, refresh: bo
     return resolved, inventory, failures
 
 
+def resolve_cached_mmcif_files(
+    pdb_ids: list[str],
+    cache_dir: Path,
+    *,
+    compressed: bool = True,
+    progress: bool = True,
+) -> tuple[dict[str, Path], list[dict], list[dict], str]:
+    """Resolve and validate cached mmCIF objects without making network requests."""
+    cache_dir = cache_dir.resolve()
+    refs = cache_dir / "request_index/rcsb_mmcif"
+    objects = cache_dir / "objects/sha256"
+    resolved: dict[str, Path] = {}
+    records: list[dict] = []
+    failures: list[dict] = []
+    identifiers = sorted({value.lower() for value in pdb_ids})
+    for pdb_id in track(
+        identifiers,
+        description="Verifying cached RCSB mmCIF",
+        total=len(identifiers),
+        enabled=progress,
+    ):
+        reference = refs / f"{pdb_id}.json"
+        object_path = _resolve_reference(reference, objects, pdb_id, compressed)
+        if object_path is None:
+            failures.append({
+                "pdb_id": pdb_id,
+                "error": "No valid content-addressed mmCIF cache entry",
+                "exception_type": "RcsbCacheMiss",
+                "reference_path": _relative_or_absolute(reference, cache_dir),
+            })
+            continue
+        reference_data = json.loads(reference.read_text(encoding="utf-8"))
+        reference_sha256 = sha256_file(reference)
+        resolved[pdb_id] = object_path
+        records.append({
+            "pdb_id": pdb_id,
+            "payload_sha256": reference_data["sha256"],
+            "compressed": bool(reference_data["compressed"]),
+            "size_bytes": object_path.stat().st_size,
+            "object_path": _relative_or_absolute(object_path, cache_dir),
+            "reference_path": _relative_or_absolute(reference, cache_dir),
+            "reference_sha256": reference_sha256,
+            "url": reference_data.get("url"),
+            "etag": reference_data.get("etag"),
+            "last_modified": reference_data.get("last_modified"),
+            "retrieved_at_utc": reference_data.get("retrieved_at_utc"),
+            "parser_schema_version": reference_data.get("parser_schema_version"),
+        })
+    fingerprint = canonical_json_hash({
+        "schema_version": "rcsb-cache-fingerprint-v1",
+        "requested_pdb_ids": identifiers,
+        "records": [
+            {
+                "pdb_id": item["pdb_id"],
+                "payload_sha256": item["payload_sha256"],
+                "compressed": item["compressed"],
+            }
+            for item in records
+        ],
+        "missing_pdb_ids": [item["pdb_id"] for item in failures],
+    })
+    return resolved, records, failures, fingerprint
+
+
 def enrich_from_mmcif(pdb_id: str, path: Path, compressed: bool, chain_rows: list[dict],
                       ligand_inputs: list[tuple[dict, str | None]] | None = None) -> dict[str, list[dict]]:
     content = path.read_bytes()
@@ -139,7 +210,7 @@ def _resolve_reference(reference: Path, objects: Path, pdb_id: str, expected_com
         plain = gzip.decompress(content) if data.get("compressed") else content
         _validate_mmcif(plain, pdb_id)
         return path
-    except (ValueError, KeyError, OSError, gzip.BadGzipFile):
+    except (ValueError, KeyError, TypeError, OSError, EOFError, gzip.BadGzipFile):
         return None
 
 
@@ -175,6 +246,33 @@ def _cache_metadata_inventory(pdb_id, path):
             "size_bytes": path.stat().st_size, "sha256": digest, "modified_time_utc": None,
             "download_url": None, "downloaded_at_utc": None, "http_etag": None,
             "http_last_modified": None, "validation_status": "valid", "warning_codes": []}
+
+
+def cached_inventory(records: list[dict], cache_dir: Path) -> list[dict]:
+    """Convert verified cache records to source-file provenance rows."""
+    cache_dir = cache_dir.resolve()
+    inventory = []
+    for record in records:
+        object_path = _cache_record_path(cache_dir, record["object_path"])
+        reference_path = _cache_record_path(cache_dir, record["reference_path"])
+        inventory.append(_cache_inventory(
+            record["pdb_id"], object_path, record.get("url"), record.get("etag"),
+            record.get("last_modified"),
+        ))
+        inventory.append(_cache_metadata_inventory(record["pdb_id"], reference_path))
+    return inventory
+
+
+def _cache_record_path(cache_dir: Path, value: str) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else cache_dir / path
+
+
+def _relative_or_absolute(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def _values(block, prefix, names):

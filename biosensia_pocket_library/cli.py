@@ -19,6 +19,7 @@ from .lmdb_export import export_lmdb
 from .manifest import write_manifest
 from .pipeline import DISTRIBUTION_ID, _artifact_inventory, build_library
 from .rcsb import download_mmcif_files
+from .rcsb_workflow import enrich_library_from_cache, plan_rcsb_request, prefetch_rcsb_request
 from .reporting import generate_reports
 from .sidecars import read_sidecar, write_sidecars
 from .validation import validate_run
@@ -35,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     except SourceIntegrityError as error:
         print(f"Source-integrity error: {error}", file=sys.stderr)
         return 3
-    except (ValueError, FileNotFoundError) as error:
+    except (ValueError, FileNotFoundError, FileExistsError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
     except Exception as error:
@@ -44,10 +45,27 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _dispatch(args) -> int:
-    if args.command in {"export-lmdb", "finalize", "validate", "report"}:
+    if args.command == "plan-rcsb":
+        result = plan_rcsb_request(args.run_dir, args.output, overwrite=args.overwrite)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command in {"export-lmdb", "finalize", "validate", "report", "enrich-from-cache"}:
         run_dir = args.run_dir.resolve()
         config_path = args.config or run_dir / "config.resolved.toml"
-        config = load_config(config_path)
+        overrides = {}
+        if args.command == "enrich-from-cache":
+            overrides = {
+                "pipeline.offline": True,
+                "paths.external_cache_dir": args.cache_dir,
+                "rcsb.download_mmcif": True,
+            }
+        config = load_config(config_path, overrides=overrides)
+    elif args.command == "prefetch-rcsb":
+        config = load_config(args.config, overrides={
+            "pipeline.offline": False,
+            "paths.external_cache_dir": args.cache_dir,
+            "rcsb.download_mmcif": True,
+        })
     else:
         overrides = _overrides(args)
         config = load_config(args.config, overrides=overrides)
@@ -90,6 +108,23 @@ def _dispatch(args) -> int:
         paths, _, failures = download_mmcif_files([record.pdb_id for record in selected], config,
                                                   refresh=args.refresh_cache, progress=progress)
         print(json.dumps({"cached_count": len(paths), "failure_count": len(failures)}, indent=2))
+        return 0
+    if args.command == "prefetch-rcsb":
+        result = prefetch_rcsb_request(
+            args.request,
+            args.cache_dir.resolve(),
+            config,
+            manifest_path=args.manifest,
+            refresh=args.refresh_cache,
+            allow_partial=args.allow_partial,
+            progress=progress,
+        )
+        print(json.dumps({
+            "cache_fingerprint": result["cache_fingerprint"],
+            "record_count": result["record_count"],
+            "failure_count": result["failure_count"],
+            "manifest_path": result["manifest_path"],
+        }, indent=2, sort_keys=True))
         return 0
     if args.command in {"build", "build-sidecars"}:
         run_dir = build_library(config, pdb_ids=args.pdb_id or _read_ids(args.pdb_ids_file), limit=args.limit,
@@ -145,6 +180,19 @@ def _dispatch(args) -> int:
         write_manifest(run_dir, manifest)
         print(json.dumps(outputs, indent=2, sort_keys=True))
         return 0
+    if args.command == "enrich-from-cache":
+        derived_run = enrich_library_from_cache(
+            run_dir,
+            args.cache_dir.resolve(),
+            config,
+            output_root=args.output_root,
+            allow_partial=args.allow_partial,
+            resume=args.resume,
+            overwrite_run=args.overwrite_run,
+            progress=progress,
+        )
+        print(derived_run)
+        return 0
     raise ConfigurationError(f"Unknown command {args.command}")
 
 
@@ -173,6 +221,27 @@ def _parser() -> argparse.ArgumentParser:
         item.add_argument("--run-dir", type=Path, required=True)
         item.add_argument("--config", type=Path)
         item.add_argument("--no-progress", action="store_true")
+    plan_parser = subparsers.add_parser("plan-rcsb")
+    plan_parser.add_argument("--run-dir", type=Path, required=True)
+    plan_parser.add_argument("--output", type=Path, required=True)
+    plan_parser.add_argument("--overwrite", action="store_true")
+    prefetch_parser = subparsers.add_parser("prefetch-rcsb")
+    prefetch_parser.add_argument("--request", type=Path, required=True)
+    prefetch_parser.add_argument("--cache-dir", type=Path, required=True)
+    prefetch_parser.add_argument("--config", type=Path)
+    prefetch_parser.add_argument("--manifest", type=Path)
+    prefetch_parser.add_argument("--refresh-cache", action="store_true")
+    prefetch_parser.add_argument("--allow-partial", action="store_true")
+    prefetch_parser.add_argument("--no-progress", action="store_true")
+    enrich_parser = subparsers.add_parser("enrich-from-cache")
+    enrich_parser.add_argument("--run-dir", type=Path, required=True)
+    enrich_parser.add_argument("--cache-dir", type=Path, required=True)
+    enrich_parser.add_argument("--config", type=Path)
+    enrich_parser.add_argument("--output-root", type=Path)
+    enrich_parser.add_argument("--allow-partial", action="store_true")
+    enrich_parser.add_argument("--resume", action="store_true")
+    enrich_parser.add_argument("--overwrite-run", action="store_true")
+    enrich_parser.add_argument("--no-progress", action="store_true")
     return parser
 
 

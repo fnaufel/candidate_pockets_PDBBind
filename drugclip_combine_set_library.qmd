@@ -14,6 +14,15 @@ format:
   pdf:
     toc: true
     number-sections: true
+    papersize: a4
+    geometry:
+      - margin=20mm
+    fig-width: 6.1
+    fig-height: 4.2
+    include-in-header:
+      text: |
+        \usepackage{graphicx}
+        \setkeys{Gin}{width=\linewidth,height=0.72\textheight,keepaspectratio}
 
 execute:
   enabled: false
@@ -82,6 +91,8 @@ The vendored DrugCLIP target-fishing path performs the following operations
 after reading an LMDB record:
 
 ```{mermaid}
+%%| fig-width: 5.4
+%%| fig-height: 3.5
 flowchart TD
   A[LMDB source record] --> B[AffinityPocketDataset]
   B --> C[Normalize atom tokens]
@@ -129,6 +140,8 @@ artifact-producing core. This avoids two undesirable extremes:
   to diverge over time.
 
 ```{mermaid}
+%%| fig-width: 6.1
+%%| fig-height: 4.2
 flowchart TB
   subgraph PDBBIND[PDBbind source adapter]
     P1[Index and licensed<br />source inventory]
@@ -159,11 +172,14 @@ flowchart TB
 | `combine_set_mapping.py` | Exact ordered and spatial atom mapping from pickle geometry to neighboring pocket PDB files |
 | `combine_set_source.py` | Discovery, selection, source inventory, stable identities, and normalized row production |
 | `combine_set_pipeline.py` | Run orchestration, stage checkpoints, optional RCSB enrichment, sidecars, LMDB, validation, and reports |
+| `rcsb.py` | Content-addressed download plus checksum, compression, and mmCIF-identity validation; cache-only resolution performs no network I/O |
+| `rcsb_enrichment.py` | Source-neutral application of verified mmCIF mappings, UniProt links, ligand candidates, and structural citations |
+| `rcsb_workflow.py` | Deterministic request planning, online prefetch manifests, and immutable cache-only derived runs |
 | `schemas.py` | Additive source-neutral sidecar schema v2 |
 | `sidecars.py` | Atomic writes plus compatibility reads for completed schema-v1 runs |
 | `lmdb_export.py` | `source_pickle` and `post_transform` serialization contracts |
 | `validation.py` | Representation-aware content hashes, joins, enums, and LMDB validation |
-| `cli.py` | Dedicated inventory and build commands |
+| `cli.py` | Dedicated inventory/build commands and the source-neutral post-build RCSB workflow |
 
 The original `pipeline.py`, ligand parser, DrugCLIP contract verifier, hashing,
 manifest, sidecar, reporting, and LMDB modules remain shared.
@@ -494,6 +510,8 @@ compatibility read.
 ## Core relationships
 
 ```{mermaid}
+%%| fig-width: 5.8
+%%| fig-height: 4.0
 erDiagram
   SOURCE_FILES ||--o{ COMPLEXES : geometry_source
   COMPLEXES ||--o{ LIGAND_INSTANCES : owns
@@ -572,49 +590,178 @@ source sidecar checksums, dictionary/task/loader/helper hashes, pickle protocol,
 and map size. Embedding caches must be namespaced or invalidated using the
 logical LMDB checksum.
 
-# Optional RCSB and UniProt enrichment
+# Post-build RCSB and UniProt enrichment
 
-The dedicated default configuration is offline and sets:
+## Why enrichment is a separate workflow
+
+The dedicated combine-set configuration is intentionally offline:
 
 ```toml
+[pipeline]
+offline = true
+
 [rcsb]
 download_mmcif = false
 ```
 
-When enabled, the combine-set pipeline reuses the existing content-addressed
-RCSB mmCIF downloader and mapper after local pickle-to-PDB mapping has
-established contributing chain identifiers.
+This is the appropriate default for Sagres because CPU and GPU compute nodes do
+not have internet access. More importantly, external-service availability
+should not determine whether the expensive geometry build succeeds. The
+implemented workflow therefore separates three concerns:
 
-RCSB enrichment can populate:
+1. the completed offline library determines exactly which PDB IDs are needed;
+2. a networked management node downloads and verifies those mmCIF files;
+3. an offline CPU node derives a new enriched run from the verified cache.
 
-- chain mapping candidates;
-- selected RCSB entity mappings;
-- chain-to-UniProt mappings and segments;
+The same commands accept either a combine-set run or a PDBbind run because both
+libraries publish the same normalized sidecar contract.
+
+```{mermaid}
+%%| fig-width: 6.0
+%%| fig-height: 4.0
+flowchart TD
+  A[Completed offline library] --> B[plan-rcsb]
+  B --> C[Deterministic request TSV]
+  C --> D[prefetch-rcsb on management node]
+  D --> E[Content-addressed cache and manifest]
+  E --> F[enrich-from-cache on CPU node]
+  A --> F
+  F --> G[Validated immutable derived run]
+```
+
+Only `prefetch-rcsb` needs internet access. `plan-rcsb` and
+`enrich-from-cache` contain no download step. None of the three commands needs
+or uses a GPU; parsing mmCIF and writing Parquet are CPU operations.
+
+## Request planning
+
+`plan-rcsb` reads accepted complexes from a complete run and writes sorted,
+unique PDB IDs. The TSV begins with canonical JSON metadata containing the
+parent run ID, manifest checksum, stable identity fields, relevant logical
+sidecar hashes, and the requested count. The body is deliberately simple so it
+can be audited with ordinary text tools.
+
+```bash
+uv run biosensia-pocket-library plan-rcsb \
+  --run-dir data/processed/drugclip_combine_set/<offline-run-id> \
+  --output rcsb-request.tsv
+```
+
+The command refuses to replace an existing request unless `--overwrite` is
+given. Request planning requires a `complete` run, not a `sidecars_complete`
+run, because post-build enrichment preserves a published LMDB as part of the
+derived library.
+
+## Management-node prefetch
+
+On a node with internet access, `prefetch-rcsb` downloads the exact request into
+the established content-addressed cache:
+
+```bash
+uv run biosensia-pocket-library prefetch-rcsb \
+  --config config/drugclip-combine-set-library.toml \
+  --request rcsb-request.tsv \
+  --cache-dir /shared/biosensia/rcsb-cache
+```
+
+For this command, the CLI explicitly enables online operation even if the
+supplied build configuration is offline. Existing valid cache entries are
+reused. Each entry is accepted only when all of the following hold:
+
+- its reference names the configured compressed or uncompressed form;
+- the content-addressed object exists;
+- the object's SHA-256 equals the reference checksum;
+- decompression succeeds when required;
+- Gemmi can parse the mmCIF;
+- the mmCIF data-block identity equals the requested PDB ID.
+
+After download, the command resolves every request again through the no-network
+cache validator. It writes a prefetch manifest below
+`<cache-dir>/manifests/rcsb_mmcif/` containing the request, portable relative
+cache paths, payload and reference checksums, retrieval metadata, failures, and
+a cache fingerprint. The command fails when any entry is missing by default;
+`--allow-partial` is an explicit exception for a deliberately partial cache.
+
+## Offline cache application
+
+Once the cache is visible on a compute node, invoke:
+
+```bash
+uv run biosensia-pocket-library enrich-from-cache \
+  --run-dir data/processed/drugclip_combine_set/<offline-run-id> \
+  --cache-dir /shared/biosensia/rcsb-cache
+```
+
+The command automatically loads the parent run's `config.resolved.toml`, forces
+offline execution, and points external-cache resolution at `--cache-dir`. It
+validates the parent and every requested cache object before creating output.
+An incomplete cache is a hard error unless `--allow-partial` is supplied.
+
+The original run is never edited. The derived run is written beside it by
+default, or below `--output-root`, with an ID of the form:
+
+```text
+<parent-run-id>-rcsb-v1-<enrichment-identity12>
+```
+
+The enrichment identity covers the stable parent identity, relevant logical
+sidecar hashes, cache fingerprint, compression form, and partial-cache policy.
+The manifest records the parent manifest checksum and cache records, and states
+`network_access_used = false` for the enrichment step.
+
+Unchanged Parquet and LMDB files are hard-linked when the filesystem permits
+and copied otherwise. Atomic replacement breaks links only for sidecars that
+must change. The LMDB payload is not regenerated: its physical and logical
+checksums remain identical to the parent. Its profile JSON is updated with the
+new `pockets.parquet` checksum and parent/cache provenance.
+
+Cache-only enrichment can populate:
+
+- chain mapping candidates and selected RCSB entity mappings;
+- chain-to-UniProt mappings and residue ranges;
 - ligand mapping candidates;
-- structure citations.
+- structure citations and authors;
+- structural-citation evidence for affinity-reference adjudication;
+- RCSB cache objects and references in `source_files.parquet`.
 
-Network or mapping failures become `RCSB_ENRICHMENT_FAILED` issues. They cannot
-change source-pickle atom membership, coordinates, content hashes, or LMDB
-eligibility.
+The command rejects a parent that is already RCSB-enriched, preventing an
+ambiguous second application. With `--allow-partial`, absent or unparseable
+entries become `RCSB_ENRICHMENT_FAILED` issues and receive explicit
+`unavailable` status. In all cases, enrichment cannot change atom membership,
+coordinates, content hashes, LMDB record order, or LMDB eligibility.
+
+## The same workflow for PDBbind
+
+No PDBbind-specific variant is needed. Substitute a completed PDBbind run in
+the planning and enrichment commands:
+
+```bash
+uv run biosensia-pocket-library plan-rcsb \
+  --run-dir data/processed/pdbbind_2020_v2024p_20250804/<offline-run-id> \
+  --output pdbbind-rcsb-request.tsv
+
+uv run biosensia-pocket-library enrich-from-cache \
+  --run-dir data/processed/pdbbind_2020_v2024p_20250804/<offline-run-id> \
+  --cache-dir /shared/biosensia/rcsb-cache
+```
+
+The earlier inline online enrichment mode remains available for local
+workstations, but the staged workflow is the recommended operational path for
+both libraries on Sagres.
 
 # Build orchestration and run identity
 
 ## Stage flow
 
 ```{mermaid}
+%%| fig-width: 5.6
+%%| fig-height: 4.2
 flowchart TD
-  A[Discover sorted data.pkl occurrences] --> B[Apply ID and limit selection]
-  B --> C[Verify DrugCLIP library contract]
-  C --> D[Hash every selected bundle file]
-  D --> E[Compute source and selection fingerprints]
-  E --> F[Create unique run directory]
-  F --> G[Load and validate trusted pickles]
-  G --> H[Parse ligands and map atoms]
-  H --> I[Optional RCSB enrichment]
-  I --> J[Write all sidecars atomically]
-  J --> K[Export and validate LMDB]
-  K --> L[Validate joins, hashes, and enums]
-  L --> M[Generate reports and finalize manifest]
+  A[Source discovery, selection, checksums, and run identity]
+  A --> B[Trusted pickle validation, ligand parsing, and local mapping]
+  B --> C[Canonical Parquet sidecars and DrugCLIP LMDB]
+  C --> D[Cross-artifact validation, reports, and offline manifest]
+  D -. optional post-build .-> E[Planned RCSB cache and validated enriched derived run]
 ```
 
 ## Run directory name
@@ -732,11 +879,58 @@ uv run biosensia-pocket-library validate \
   --run-dir data/processed/drugclip_combine_set/<run-id>
 ```
 
-## 7. Regenerate reports
+## 7. Plan the optional external request
+
+This step can run on the same offline CPU node that built the library:
+
+```bash
+uv run biosensia-pocket-library plan-rcsb \
+  --run-dir data/processed/drugclip_combine_set/<run-id> \
+  --output rcsb-request.tsv
+```
+
+## 8. Prefetch on the management node
+
+Move only the request file to the internet-connected management node if the
+library filesystem is not mounted there. Then populate a shared or transferable
+cache:
+
+```bash
+uv run biosensia-pocket-library prefetch-rcsb \
+  --config config/drugclip-combine-set-library.toml \
+  --request rcsb-request.tsv \
+  --cache-dir /shared/biosensia/rcsb-cache
+```
+
+If `/shared` is unavailable to compute nodes, transfer the entire cache root,
+including `objects/`, `request_index/`, and `manifests/`, to node-local or job
+storage. Relative paths in the prefetch manifest make the cache relocatable.
+
+## 9. Derive the enriched library offline
+
+Run this on a CPU node. A GPU allocation provides no benefit.
+
+```bash
+uv run biosensia-pocket-library enrich-from-cache \
+  --run-dir data/processed/drugclip_combine_set/<run-id> \
+  --cache-dir /shared/biosensia/rcsb-cache
+```
+
+The command prints the derived run path. Preserve the printed path rather than
+assuming the identity suffix.
+
+## 10. Validate the derived run independently
+
+```bash
+uv run biosensia-pocket-library validate \
+  --run-dir data/processed/drugclip_combine_set/<derived-run-id>
+```
+
+## 11. Regenerate reports
 
 ```bash
 uv run biosensia-pocket-library report \
-  --run-dir data/processed/drugclip_combine_set/<run-id>
+  --run-dir data/processed/drugclip_combine_set/<derived-run-id>
 ```
 
 # Output layout
@@ -814,6 +1008,17 @@ appear sound.
 - profile metadata contains sidecar and LMDB hashes;
 - final artifact inventory records physical file sizes and SHA-256 values.
 
+## Post-build enrichment validation
+
+- request IDs are canonical, unique, sorted, and count-consistent;
+- cache references and objects are revalidated without network access;
+- the parent run must be complete, valid, and not already RCSB-enriched;
+- the derived manifest records parent, cache, code, and configuration provenance;
+- changed sidecars are rewritten atomically and all foreign keys are rechecked;
+- the derived LMDB checksum must remain the reused parent checksum;
+- the complete derived run passes the same relational and LMDB validator as a
+  directly built library.
+
 # Test strategy and observed evidence
 
 ## Synthetic tests
@@ -840,12 +1045,15 @@ The test proves that:
 
 Additional tests cover CLI parsing, automatic LMDB map growth, schema-v1
 compatibility, existing PDBbind behavior, deterministic worker-count outputs,
-and finalization.
+finalization, source-neutral PDBbind request planning, deterministic request
+round trips, cache-manifest generation, offline enrichment, parent immutability,
+LMDB checksum reuse, strict incomplete-cache failure, and checksum-tampering
+rejection.
 
 At the time this document was written, the complete test suite reported:
 
 ```text
-33 passed
+37 passed
 ```
 
 ## Real-source verification
@@ -896,6 +1104,23 @@ This is an operational scaling constraint, not a reason to discard source
 atoms. A future streaming sidecar writer must preserve the same ordering,
 hashing, relational, and atomic-publication contracts.
 
+## Compute and network placement
+
+The geometry build and post-build enrichment are CPU workloads. They use
+threaded parsing and hashing but contain no CUDA path. Request planning is
+lightweight. Prefetch is network-bound with modest CPU use for decompression and
+mmCIF validation. On Sagres, use this placement:
+
+| Step | Recommended node | Internet | GPU |
+|---|---|---:|---:|
+| combine-set or PDBbind build | CPU compute | no | no |
+| `plan-rcsb` | CPU compute or management | no | no |
+| `prefetch-rcsb` | management | yes | no |
+| `enrich-from-cache` | CPU compute | no | no |
+
+The cache can be populated before submitting the enrichment job. The job then
+depends only on local/shared files and cannot accidentally contact RCSB.
+
 # Troubleshooting
 
 ## Refusal to deserialize pickle
@@ -936,6 +1161,28 @@ residue or chain annotations are incomplete and must not be guessed.
 
 Use `--resume` only for an identical run identity. Use `--overwrite-run` to
 preserve the old directory as a timestamped backup before rebuilding.
+
+## RCSB cache is incomplete
+
+Re-run `prefetch-rcsb` on the management node using the same request and cache
+root. The command reuses valid objects and downloads only unresolved entries.
+Inspect the written prefetch manifest for per-PDB failure details. Use
+`--allow-partial` only when unavailable mappings are an intentional, recorded
+outcome.
+
+## Parent run is already RCSB-enriched
+
+Post-build enrichment is a one-step derivation from an offline parent. Select
+the original offline run instead of chaining enrichment onto an already
+enriched run. This keeps parent/cache provenance and failure semantics
+unambiguous.
+
+## Cache checksum or mmCIF identity failure
+
+Treat the object as corrupt or incorrectly indexed. Do not edit its reference
+JSON to bypass validation. Remove or quarantine the bad cache entry on the
+management node and run `prefetch-rcsb --refresh-cache` to retrieve and verify a
+replacement.
 
 ## Validation reports a content-hash mismatch
 

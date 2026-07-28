@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import gzip
 import json
 import threading
 import time
@@ -9,8 +10,10 @@ import pyarrow.parquet as pq
 from biosensia_pocket_library.config import load_config
 from biosensia_pocket_library.drugclip_contract import verify_drugclip_contract
 from biosensia_pocket_library.finalization import finalize_run
+from biosensia_pocket_library.hashing import atomic_write_bytes, canonical_json_bytes, sha256_bytes
 from biosensia_pocket_library.manifest import PIPELINE_STAGE_ORDER
 from biosensia_pocket_library.pipeline import _bounded_thread_map, build_library
+from biosensia_pocket_library.rcsb_workflow import enrich_library_from_cache, plan_rcsb_request
 from biosensia_pocket_library.reporting import generate_reports
 from biosensia_pocket_library.validation import validate_run
 
@@ -59,6 +62,40 @@ $$$$
     (biosensia / "lmdb_helpers.py").write_text("# helper\n")
 
 
+def _seed_minimal_rcsb_cache(cache: Path):
+    plain = b"""data_1abc
+loop_
+_entity_poly.entity_id
+_entity_poly.type
+1 'polypeptide(L)'
+loop_
+_entity.id
+_entity.pdbx_description
+1 'Example protein'
+loop_
+_atom_site.group_PDB
+_atom_site.auth_asym_id
+_atom_site.label_asym_id
+_atom_site.label_entity_id
+ATOM A X 1
+ATOM A X 1
+"""
+    payload = gzip.compress(plain, mtime=0)
+    digest = sha256_bytes(payload)
+    atomic_write_bytes(cache / "objects/sha256" / digest[:2] / digest, payload)
+    reference = {
+        "pdb_id": "1abc", "sha256": digest, "payload_sha256": digest,
+        "compressed": True, "url": "https://files.rcsb.org/download/1ABC.cif.gz",
+        "etag": "fixture", "last_modified": None,
+        "retrieved_at_utc": "2026-01-01T00:00:00+00:00",
+        "parser_schema_version": "rcsb-mmcif-cache-v1",
+    }
+    atomic_write_bytes(
+        cache / "request_index/rcsb_mmcif/1abc.json",
+        canonical_json_bytes(reference) + b"\n",
+    )
+
+
 def test_synthetic_end_to_end_build(tmp_path: Path):
     _fixture(tmp_path)
     config = load_config(project_root=tmp_path, overrides={
@@ -79,6 +116,23 @@ def test_synthetic_end_to_end_build(tmp_path: Path):
     assert checkpoint_directories == [
         f"{ordinal:03d}_{stage}" for ordinal, stage in enumerate(PIPELINE_STAGE_ORDER)
     ]
+    request = plan_rcsb_request(run_dir, tmp_path / "pdbbind-rcsb-request.tsv")
+    assert request["source_run_id"] == run_dir.name
+    assert request["requested_pdb_ids"] == ["1abc"]
+    cache = tmp_path / "rcsb-cache"
+    _seed_minimal_rcsb_cache(cache)
+    enrichment_config = load_config(project_root=tmp_path, overrides={
+        "pipeline.offline": True, "pipeline.progress": False,
+        "paths.external_cache_dir": cache, "rcsb.download_mmcif": True,
+        "pocket.minimum_pocket_atoms_warning": 1,
+    })
+    derived = enrich_library_from_cache(
+        run_dir, cache, enrichment_config, output_root=tmp_path / "derived", progress=False
+    )
+    assert validate_run(derived, enrichment_config, progress=False) == []
+    derived_complex = pq.read_table(derived / "sidecars/complexes.parquet").to_pylist()[0]
+    assert derived_complex["structure_mapping_quality"] == "exact"
+    assert derived_complex["geometry_origin"] == "pdbbind_reextracted"
 
 
 def test_worker_count_does_not_change_logical_outputs(tmp_path: Path):

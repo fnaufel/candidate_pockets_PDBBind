@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.35">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="BioSensIA">
+<meta name="dcterms.date" content="2026-07-28">
+
+<title>Building the DrugCLIP combine_set Candidate-Pocket Library</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="drugclip_combine_set_library_files/libs/clipboard/clipboard.min.js"></script>
+<script src="drugclip_combine_set_library_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="drugclip_combine_set_library_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="drugclip_combine_set_library_files/libs/quarto-html/popper.min.js"></script>
+<script src="drugclip_combine_set_library_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="drugclip_combine_set_library_files/libs/quarto-html/anchor.min.js"></script>
+<link href="drugclip_combine_set_library_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="drugclip_combine_set_library_files/libs/quarto-html/quarto-syntax-highlighting-46f66b053e56abd73bb6e954d61a315b.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="drugclip_combine_set_library_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="drugclip_combine_set_library_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="drugclip_combine_set_library_files/libs/bootstrap/bootstrap-56ceb39d98e760d981ce719315fb45d5.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script src="drugclip_combine_set_library_files/libs/quarto-diagram/mermaid.min.js"></script>
+<script src="drugclip_combine_set_library_files/libs/quarto-diagram/mermaid-init.js"></script>
+<link href="drugclip_combine_set_library_files/libs/quarto-diagram/mermaid.css" rel="stylesheet">
+
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#purpose" id="toc-purpose" class="nav-link active" data-scroll-target="#purpose"><span class="header-section-number">1</span> Purpose</a></li>
+  <li><a href="#why-the-design-changed-after-inspecting-the-data" id="toc-why-the-design-changed-after-inspecting-the-data" class="nav-link" data-scroll-target="#why-the-design-changed-after-inspecting-the-data"><span class="header-section-number">2</span> Why the design changed after inspecting the data</a>
+  <ul>
+  <li><a href="#initial-assumption" id="toc-initial-assumption" class="nav-link" data-scroll-target="#initial-assumption"><span class="header-section-number">2.1</span> Initial assumption</a></li>
+  <li><a href="#observed-drugclip-behavior" id="toc-observed-drugclip-behavior" class="nav-link" data-scroll-target="#observed-drugclip-behavior"><span class="header-section-number">2.2</span> Observed DrugCLIP behavior</a></li>
+  <li><a href="#revised-rule" id="toc-revised-rule" class="nav-link" data-scroll-target="#revised-rule"><span class="header-section-number">2.3</span> Revised rule</a></li>
+  </ul></li>
+  <li><a href="#architecture" id="toc-architecture" class="nav-link" data-scroll-target="#architecture"><span class="header-section-number">3</span> Architecture</a>
+  <ul>
+  <li><a href="#source-adapter-instead-of-a-second-independent-application" id="toc-source-adapter-instead-of-a-second-independent-application" class="nav-link" data-scroll-target="#source-adapter-instead-of-a-second-independent-application"><span class="header-section-number">3.1</span> Source adapter instead of a second independent application</a></li>
+  <li><a href="#module-map" id="toc-module-map" class="nav-link" data-scroll-target="#module-map"><span class="header-section-number">3.2</span> Module map</a></li>
+  </ul></li>
+  <li><a href="#trust-boundary" id="toc-trust-boundary" class="nav-link" data-scroll-target="#trust-boundary"><span class="header-section-number">4</span> Trust boundary</a>
+  <ul>
+  <li><a href="#why-pickle-requires-an-explicit-decision" id="toc-why-pickle-requires-an-explicit-decision" class="nav-link" data-scroll-target="#why-pickle-requires-an-explicit-decision"><span class="header-section-number">4.1</span> Why pickle requires an explicit decision</a></li>
+  <li><a href="#inventory-is-safe-before-deserialization" id="toc-inventory-is-safe-before-deserialization" class="nav-link" data-scroll-target="#inventory-is-safe-before-deserialization"><span class="header-section-number">4.2</span> Inventory is safe before deserialization</a></li>
+  </ul></li>
+  <li><a href="#discovery-selection-and-source-inventory" id="toc-discovery-selection-and-source-inventory" class="nav-link" data-scroll-target="#discovery-selection-and-source-inventory"><span class="header-section-number">5</span> Discovery, selection, and source inventory</a>
+  <ul>
+  <li><a href="#discovery-contract" id="toc-discovery-contract" class="nav-link" data-scroll-target="#discovery-contract"><span class="header-section-number">5.1</span> Discovery contract</a></li>
+  <li><a href="#deterministic-selection" id="toc-deterministic-selection" class="nav-link" data-scroll-target="#deterministic-selection"><span class="header-section-number">5.2</span> Deterministic selection</a></li>
+  <li><a href="#file-roles" id="toc-file-roles" class="nav-link" data-scroll-target="#file-roles"><span class="header-section-number">5.3</span> File roles</a></li>
+  </ul></li>
+  <li><a href="#trusted-pickle-validation" id="toc-trusted-pickle-validation" class="nav-link" data-scroll-target="#trusted-pickle-validation"><span class="header-section-number">6</span> Trusted pickle validation</a>
+  <ul>
+  <li><a href="#required-pocket-fields" id="toc-required-pocket-fields" class="nav-link" data-scroll-target="#required-pocket-fields"><span class="header-section-number">6.1</span> Required pocket fields</a></li>
+  <li><a href="#why-coordinate-layouts-are-normalized-carefully" id="toc-why-coordinate-layouts-are-normalized-carefully" class="nav-link" data-scroll-target="#why-coordinate-layouts-are-normalized-carefully"><span class="header-section-number">6.2</span> Why coordinate layouts are normalized carefully</a></li>
+  <li><a href="#drugclip-token-normalization" id="toc-drugclip-token-normalization" class="nav-link" data-scroll-target="#drugclip-token-normalization"><span class="header-section-number">6.3</span> DrugCLIP token normalization</a></li>
+  </ul></li>
+  <li><a href="#ligand-identity-and-geometry" id="toc-ligand-identity-and-geometry" class="nav-link" data-scroll-target="#ligand-identity-and-geometry"><span class="header-section-number">7</span> Ligand identity and geometry</a></li>
+  <li><a href="#mapping-pickle-atoms-to-structure-metadata" id="toc-mapping-pickle-atoms-to-structure-metadata" class="nav-link" data-scroll-target="#mapping-pickle-atoms-to-structure-metadata"><span class="header-section-number">8</span> Mapping pickle atoms to structure metadata</a>
+  <ul>
+  <li><a href="#geometry-and-metadata-have-different-authority" id="toc-geometry-and-metadata-have-different-authority" class="nav-link" data-scroll-target="#geometry-and-metadata-have-different-authority"><span class="header-section-number">8.1</span> Geometry and metadata have different authority</a></li>
+  <li><a href="#candidate-files" id="toc-candidate-files" class="nav-link" data-scroll-target="#candidate-files"><span class="header-section-number">8.2</span> Candidate files</a></li>
+  <li><a href="#exact-ordered-mapping" id="toc-exact-ordered-mapping" class="nav-link" data-scroll-target="#exact-ordered-mapping"><span class="header-section-number">8.3</span> Exact ordered mapping</a></li>
+  <li><a href="#unique-spatial-fallback" id="toc-unique-spatial-fallback" class="nav-link" data-scroll-target="#unique-spatial-fallback"><span class="header-section-number">8.4</span> Unique spatial fallback</a></li>
+  <li><a href="#mapping-quality-versus-geometry-quality" id="toc-mapping-quality-versus-geometry-quality" class="nav-link" data-scroll-target="#mapping-quality-versus-geometry-quality"><span class="header-section-number">8.5</span> Mapping quality versus geometry quality</a></li>
+  </ul></li>
+  <li><a href="#stable-identities-and-hashes" id="toc-stable-identities-and-hashes" class="nav-link" data-scroll-target="#stable-identities-and-hashes"><span class="header-section-number">9</span> Stable identities and hashes</a>
+  <ul>
+  <li><a href="#complex-identity" id="toc-complex-identity" class="nav-link" data-scroll-target="#complex-identity"><span class="header-section-number">9.1</span> Complex identity</a></li>
+  <li><a href="#pocket-content-hash" id="toc-pocket-content-hash" class="nav-link" data-scroll-target="#pocket-content-hash"><span class="header-section-number">9.2</span> Pocket content hash</a></li>
+  <li><a href="#pocket-derivation-hash" id="toc-pocket-derivation-hash" class="nav-link" data-scroll-target="#pocket-derivation-hash"><span class="header-section-number">9.3</span> Pocket derivation hash</a></li>
+  </ul></li>
+  <li><a href="#sidecar-schema-v2" id="toc-sidecar-schema-v2" class="nav-link" data-scroll-target="#sidecar-schema-v2"><span class="header-section-number">10</span> Sidecar schema v2</a>
+  <ul>
+  <li><a href="#additive-source-neutral-fields" id="toc-additive-source-neutral-fields" class="nav-link" data-scroll-target="#additive-source-neutral-fields"><span class="header-section-number">10.1</span> Additive source-neutral fields</a></li>
+  <li><a href="#core-relationships" id="toc-core-relationships" class="nav-link" data-scroll-target="#core-relationships"><span class="header-section-number">10.2</span> Core relationships</a></li>
+  </ul></li>
+  <li><a href="#representation-aware-lmdb-export" id="toc-representation-aware-lmdb-export" class="nav-link" data-scroll-target="#representation-aware-lmdb-export"><span class="header-section-number">11</span> Representation-aware LMDB export</a>
+  <ul>
+  <li><a href="#minimal-record-contract" id="toc-minimal-record-contract" class="nav-link" data-scroll-target="#minimal-record-contract"><span class="header-section-number">11.1</span> Minimal record contract</a></li>
+  <li><a href="#source-pickle-export" id="toc-source-pickle-export" class="nav-link" data-scroll-target="#source-pickle-export"><span class="header-section-number">11.2</span> Source-pickle export</a></li>
+  <li><a href="#post-transform-export" id="toc-post-transform-export" class="nav-link" data-scroll-target="#post-transform-export"><span class="header-section-number">11.3</span> Post-transform export</a></li>
+  <li><a href="#dense-keys-and-checksums" id="toc-dense-keys-and-checksums" class="nav-link" data-scroll-target="#dense-keys-and-checksums"><span class="header-section-number">11.4</span> Dense keys and checksums</a></li>
+  </ul></li>
+  <li><a href="#post-build-rcsb-and-uniprot-enrichment" id="toc-post-build-rcsb-and-uniprot-enrichment" class="nav-link" data-scroll-target="#post-build-rcsb-and-uniprot-enrichment"><span class="header-section-number">12</span> Post-build RCSB and UniProt enrichment</a>
+  <ul>
+  <li><a href="#why-enrichment-is-a-separate-workflow" id="toc-why-enrichment-is-a-separate-workflow" class="nav-link" data-scroll-target="#why-enrichment-is-a-separate-workflow"><span class="header-section-number">12.1</span> Why enrichment is a separate workflow</a></li>
+  <li><a href="#request-planning" id="toc-request-planning" class="nav-link" data-scroll-target="#request-planning"><span class="header-section-number">12.2</span> Request planning</a></li>
+  <li><a href="#management-node-prefetch" id="toc-management-node-prefetch" class="nav-link" data-scroll-target="#management-node-prefetch"><span class="header-section-number">12.3</span> Management-node prefetch</a></li>
+  <li><a href="#offline-cache-application" id="toc-offline-cache-application" class="nav-link" data-scroll-target="#offline-cache-application"><span class="header-section-number">12.4</span> Offline cache application</a></li>
+  <li><a href="#the-same-workflow-for-pdbbind" id="toc-the-same-workflow-for-pdbbind" class="nav-link" data-scroll-target="#the-same-workflow-for-pdbbind"><span class="header-section-number">12.5</span> The same workflow for PDBbind</a></li>
+  </ul></li>
+  <li><a href="#build-orchestration-and-run-identity" id="toc-build-orchestration-and-run-identity" class="nav-link" data-scroll-target="#build-orchestration-and-run-identity"><span class="header-section-number">13</span> Build orchestration and run identity</a>
+  <ul>
+  <li><a href="#stage-flow" id="toc-stage-flow" class="nav-link" data-scroll-target="#stage-flow"><span class="header-section-number">13.1</span> Stage flow</a></li>
+  <li><a href="#run-directory-name" id="toc-run-directory-name" class="nav-link" data-scroll-target="#run-directory-name"><span class="header-section-number">13.2</span> Run directory name</a></li>
+  <li><a href="#resume-and-overwrite" id="toc-resume-and-overwrite" class="nav-link" data-scroll-target="#resume-and-overwrite"><span class="header-section-number">13.3</span> Resume and overwrite</a></li>
+  </ul></li>
+  <li><a href="#configuration-guide" id="toc-configuration-guide" class="nav-link" data-scroll-target="#configuration-guide"><span class="header-section-number">14</span> Configuration guide</a></li>
+  <li><a href="#operating-guide" id="toc-operating-guide" class="nav-link" data-scroll-target="#operating-guide"><span class="header-section-number">15</span> Operating guide</a>
+  <ul>
+  <li><a href="#install-and-verify-the-environment" id="toc-install-and-verify-the-environment" class="nav-link" data-scroll-target="#install-and-verify-the-environment"><span class="header-section-number">15.1</span> 1. Install and verify the environment</a></li>
+  <li><a href="#inventory-without-deserializing" id="toc-inventory-without-deserializing" class="nav-link" data-scroll-target="#inventory-without-deserializing"><span class="header-section-number">15.2</span> 2. Inventory without deserializing</a></li>
+  <li><a href="#build-a-small-audit-selection" id="toc-build-a-small-audit-selection" class="nav-link" data-scroll-target="#build-a-small-audit-selection"><span class="header-section-number">15.3</span> 3. Build a small audit selection</a></li>
+  <li><a href="#build-sidecars-without-lmdb" id="toc-build-sidecars-without-lmdb" class="nav-link" data-scroll-target="#build-sidecars-without-lmdb"><span class="header-section-number">15.4</span> 4. Build sidecars without LMDB</a></li>
+  <li><a href="#build-the-complete-selected-library" id="toc-build-the-complete-selected-library" class="nav-link" data-scroll-target="#build-the-complete-selected-library"><span class="header-section-number">15.5</span> 5. Build the complete selected library</a></li>
+  <li><a href="#validate-independently" id="toc-validate-independently" class="nav-link" data-scroll-target="#validate-independently"><span class="header-section-number">15.6</span> 6. Validate independently</a></li>
+  <li><a href="#plan-the-optional-external-request" id="toc-plan-the-optional-external-request" class="nav-link" data-scroll-target="#plan-the-optional-external-request"><span class="header-section-number">15.7</span> 7. Plan the optional external request</a></li>
+  <li><a href="#prefetch-on-the-management-node" id="toc-prefetch-on-the-management-node" class="nav-link" data-scroll-target="#prefetch-on-the-management-node"><span class="header-section-number">15.8</span> 8. Prefetch on the management node</a></li>
+  <li><a href="#derive-the-enriched-library-offline" id="toc-derive-the-enriched-library-offline" class="nav-link" data-scroll-target="#derive-the-enriched-library-offline"><span class="header-section-number">15.9</span> 9. Derive the enriched library offline</a></li>
+  <li><a href="#validate-the-derived-run-independently" id="toc-validate-the-derived-run-independently" class="nav-link" data-scroll-target="#validate-the-derived-run-independently"><span class="header-section-number">15.10</span> 10. Validate the derived run independently</a></li>
+  <li><a href="#regenerate-reports" id="toc-regenerate-reports" class="nav-link" data-scroll-target="#regenerate-reports"><span class="header-section-number">15.11</span> 11. Regenerate reports</a></li>
+  </ul></li>
+  <li><a href="#output-layout" id="toc-output-layout" class="nav-link" data-scroll-target="#output-layout"><span class="header-section-number">16</span> Output layout</a></li>
+  <li><a href="#validation-model" id="toc-validation-model" class="nav-link" data-scroll-target="#validation-model"><span class="header-section-number">17</span> Validation model</a>
+  <ul>
+  <li><a href="#source-record-validation" id="toc-source-record-validation" class="nav-link" data-scroll-target="#source-record-validation"><span class="header-section-number">17.1</span> Source-record validation</a></li>
+  <li><a href="#sidecar-validation" id="toc-sidecar-validation" class="nav-link" data-scroll-target="#sidecar-validation"><span class="header-section-number">17.2</span> Sidecar validation</a></li>
+  <li><a href="#lmdb-validation" id="toc-lmdb-validation" class="nav-link" data-scroll-target="#lmdb-validation"><span class="header-section-number">17.3</span> LMDB validation</a></li>
+  <li><a href="#manifest-and-artifact-validation" id="toc-manifest-and-artifact-validation" class="nav-link" data-scroll-target="#manifest-and-artifact-validation"><span class="header-section-number">17.4</span> Manifest and artifact validation</a></li>
+  <li><a href="#post-build-enrichment-validation" id="toc-post-build-enrichment-validation" class="nav-link" data-scroll-target="#post-build-enrichment-validation"><span class="header-section-number">17.5</span> Post-build enrichment validation</a></li>
+  </ul></li>
+  <li><a href="#test-strategy-and-observed-evidence" id="toc-test-strategy-and-observed-evidence" class="nav-link" data-scroll-target="#test-strategy-and-observed-evidence"><span class="header-section-number">18</span> Test strategy and observed evidence</a>
+  <ul>
+  <li><a href="#synthetic-tests" id="toc-synthetic-tests" class="nav-link" data-scroll-target="#synthetic-tests"><span class="header-section-number">18.1</span> Synthetic tests</a></li>
+  <li><a href="#real-source-verification" id="toc-real-source-verification" class="nav-link" data-scroll-target="#real-source-verification"><span class="header-section-number">18.2</span> Real-source verification</a></li>
+  </ul></li>
+  <li><a href="#performance-and-scaling" id="toc-performance-and-scaling" class="nav-link" data-scroll-target="#performance-and-scaling"><span class="header-section-number">19</span> Performance and scaling</a>
+  <ul>
+  <li><a href="#bounded-processing-concurrency" id="toc-bounded-processing-concurrency" class="nav-link" data-scroll-target="#bounded-processing-concurrency"><span class="header-section-number">19.1</span> Bounded processing concurrency</a></li>
+  <li><a href="#memory-planning" id="toc-memory-planning" class="nav-link" data-scroll-target="#memory-planning"><span class="header-section-number">19.2</span> Memory planning</a></li>
+  <li><a href="#compute-and-network-placement" id="toc-compute-and-network-placement" class="nav-link" data-scroll-target="#compute-and-network-placement"><span class="header-section-number">19.3</span> Compute and network placement</a></li>
+  </ul></li>
+  <li><a href="#troubleshooting" id="toc-troubleshooting" class="nav-link" data-scroll-target="#troubleshooting"><span class="header-section-number">20</span> Troubleshooting</a>
+  <ul>
+  <li><a href="#refusal-to-deserialize-pickle" id="toc-refusal-to-deserialize-pickle" class="nav-link" data-scroll-target="#refusal-to-deserialize-pickle"><span class="header-section-number">20.1</span> Refusal to deserialize pickle</a></li>
+  <li><a href="#pickle-shape-or-finiteness-error" id="toc-pickle-shape-or-finiteness-error" class="nav-link" data-scroll-target="#pickle-shape-or-finiteness-error"><span class="header-section-number">20.2</span> Pickle shape or finiteness error</a></li>
+  <li><a href="#dictionary-lacks-transformed-tokens" id="toc-dictionary-lacks-transformed-tokens" class="nav-link" data-scroll-target="#dictionary-lacks-transformed-tokens"><span class="header-section-number">20.3</span> Dictionary lacks transformed tokens</a></li>
+  <li><a href="#incomplete-atom-mapping" id="toc-incomplete-atom-mapping" class="nav-link" data-scroll-target="#incomplete-atom-mapping"><span class="header-section-number">20.4</span> Incomplete atom mapping</a></li>
+  <li><a href="#existing-run-already-present" id="toc-existing-run-already-present" class="nav-link" data-scroll-target="#existing-run-already-present"><span class="header-section-number">20.5</span> Existing run already present</a></li>
+  <li><a href="#rcsb-cache-is-incomplete" id="toc-rcsb-cache-is-incomplete" class="nav-link" data-scroll-target="#rcsb-cache-is-incomplete"><span class="header-section-number">20.6</span> RCSB cache is incomplete</a></li>
+  <li><a href="#parent-run-is-already-rcsb-enriched" id="toc-parent-run-is-already-rcsb-enriched" class="nav-link" data-scroll-target="#parent-run-is-already-rcsb-enriched"><span class="header-section-number">20.7</span> Parent run is already RCSB-enriched</a></li>
+  <li><a href="#cache-checksum-or-mmcif-identity-failure" id="toc-cache-checksum-or-mmcif-identity-failure" class="nav-link" data-scroll-target="#cache-checksum-or-mmcif-identity-failure"><span class="header-section-number">20.8</span> Cache checksum or mmCIF identity failure</a></li>
+  <li><a href="#validation-reports-a-content-hash-mismatch" id="toc-validation-reports-a-content-hash-mismatch" class="nav-link" data-scroll-target="#validation-reports-a-content-hash-mismatch"><span class="header-section-number">20.9</span> Validation reports a content-hash mismatch</a></li>
+  </ul></li>
+  <li><a href="#scientific-interpretation" id="toc-scientific-interpretation" class="nav-link" data-scroll-target="#scientific-interpretation"><span class="header-section-number">21</span> Scientific interpretation</a></li>
+  </ul>
+<div class="quarto-alternate-formats"><h2>Other Formats</h2><ul><li><a href="drugclip_combine_set_library.pdf"><i class="bi bi-file-pdf"></i>PDF</a></li></ul></div></nav>
+</div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Building the DrugCLIP combine_set Candidate-Pocket Library</h1>
+<p class="subtitle lead">Architecture, data contracts, provenance, validation, and operating guide</p>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>BioSensIA </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">July 28, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="purpose" class="level1" data-number="1">
+<h1 data-number="1"><span class="header-section-number">1</span> Purpose</h1>
+<p>This document explains the second candidate-pocket library implemented in this repository. The first library reconstructs pocket geometry from licensed PDBbind protein and ligand structures. The second library starts from the bundles below DrugCLIP’s vendored directory:</p>
+<pre class="text"><code>external/DrugCLIP/data/pdb/combine_set/
+└── &lt;pdb-id&gt;/
+    ├── data.pkl
+    ├── &lt;pdb-id&gt;_ligand.sdf
+    ├── &lt;pdb-id&gt;_ligand.mol2
+    ├── &lt;pdb-id&gt;_protein.pdb
+    ├── &lt;pdb-id&gt;_pocket.pdb
+    └── &lt;pdb-id&gt;_pocket6A.pdb</code></pre>
+<p>The goal is not simply to copy pickle files into an LMDB. A usable candidate library must also provide stable identity, source checksums, ligand identity, chain and residue provenance, explicit mapping uncertainty, Parquet sidecars, LMDB checksums, and validation across all artifacts.</p>
+<p>The implemented products are:</p>
+<ol type="1">
+<li>an explicit-schema sidecar collection containing scientific data and provenance;</li>
+<li>a DrugCLIP-compatible candidate-pocket LMDB;</li>
+<li>profile metadata containing contract and artifact checksums;</li>
+<li>a manifest, stage checkpoints, logs, and build reports.</li>
+</ol>
+<p>The operational commands are deliberately separate from the original PDBbind commands:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library inventory-combine-set <span class="dt">\</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pdb-id</span> 2h2h</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library build-combine-set <span class="dt">\</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pdb-id</span> 2h2h</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="why-the-design-changed-after-inspecting-the-data" class="level1" data-number="2">
+<h1 data-number="2"><span class="header-section-number">2</span> Why the design changed after inspecting the data</h1>
+<section id="initial-assumption" class="level2" data-number="2.1">
+<h2 data-number="2.1" class="anchored" data-anchor-id="initial-assumption"><span class="header-section-number">2.1</span> Initial assumption</h2>
+<p>The initial design assumed that <code>data.pkl</code> might already contain the final pocket representation expected by the model: hydrogen-free, bounded to the configured maximum number of atoms, and ready to serialize directly through the existing post-transform LMDB path.</p>
+<p>That assumption was incorrect.</p>
+</section>
+<section id="observed-drugclip-behavior" class="level2" data-number="2.2">
+<h2 data-number="2.2" class="anchored" data-anchor-id="observed-drugclip-behavior"><span class="header-section-number">2.2</span> Observed DrugCLIP behavior</h2>
+<p>The pickles contain an <strong>input-stage representation</strong>. They commonly retain hydrogen and can contain substantially more than the default 256 pocket atoms. The vendored DrugCLIP target-fishing path performs the following operations after reading an LMDB record:</p>
+<div class="cell" data-fig-width="5.4" data-fig-height="3.5" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TD
+  A[LMDB source record] --&gt; B[AffinityPocketDataset]
+  B --&gt; C[Normalize atom tokens]
+  C --&gt; D[RemoveHydrogenPocketDataset]
+  D --&gt; E[CroppingPocketDataset]
+  E --&gt; F[Normalize coordinates]
+  F --&gt; G[Tokenize and encode]
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p>Therefore, removing hydrogen or cropping while building this second LMDB would apply part of the DrugCLIP transformation twice, or would replace DrugCLIP’s established crop with a different representation. Either change would make the new candidate library scientifically different from the original combine-set input.</p>
+</section>
+<section id="revised-rule" class="level2" data-number="2.3">
+<h2 data-number="2.3" class="anchored" data-anchor-id="revised-rule"><span class="header-section-number">2.3</span> Revised rule</h2>
+<p>The revised implementation distinguishes two record representations:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 17%">
+<col style="width: 17%">
+<col style="width: 23%">
+<col style="width: 23%">
+<col style="width: 17%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Representation</th>
+<th>Producer</th>
+<th style="text-align: right;">Hydrogen</th>
+<th style="text-align: right;">Atom limit at serialization</th>
+<th>Later DrugCLIP transform</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>post_transform</code></td>
+<td>PDBbind re-extraction builder</td>
+<td style="text-align: right;">Excluded</td>
+<td style="text-align: right;">Enforced</td>
+<td>No additional atom removal should be needed</td>
+</tr>
+<tr class="even">
+<td><code>source_pickle</code></td>
+<td>combine-set builder</td>
+<td style="text-align: right;">Preserved</td>
+<td style="text-align: right;">Not enforced</td>
+<td>DrugCLIP removes hydrogen and crops</td>
+</tr>
+</tbody>
+</table>
+<p>This distinction is recorded in <code>lmdb_records.record_representation</code>. It is also used by the exporter and validator so that a raw source record is not rejected for correctly containing hydrogen or more than 256 atoms.</p>
+<p>The invariant for the combine-set builder is:</p>
+<blockquote class="blockquote">
+<p>The ordered <code>pocket_atoms</code> sequence and corresponding <code>pocket_coordinates</code> array written to LMDB are the validated source-pickle representation, converted only to contiguous little-endian float32 coordinates for a deterministic serialization contract.</p>
+</blockquote>
+</section>
+</section>
+<section id="architecture" class="level1" data-number="3">
+<h1 data-number="3"><span class="header-section-number">3</span> Architecture</h1>
+<section id="source-adapter-instead-of-a-second-independent-application" class="level2" data-number="3.1">
+<h2 data-number="3.1" class="anchored" data-anchor-id="source-adapter-instead-of-a-second-independent-application"><span class="header-section-number">3.1</span> Source adapter instead of a second independent application</h2>
+<p>The implementation adds a source-specific ingestion path but reuses the artifact-producing core. This avoids two undesirable extremes:</p>
+<ul>
+<li>inserting combine-set conditions throughout the PDBbind geometry extractor;</li>
+<li>copying the entire pipeline and allowing validation or serialization behavior to diverge over time.</li>
+</ul>
+<div class="cell" data-fig-width="6.1" data-fig-height="4.2" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TB
+  subgraph PDBBIND[PDBbind source adapter]
+    P1[Index and licensed&lt;br /&gt;source inventory]
+    P2[Ligand and protein parsing]
+    P3[Distance-based&lt;br /&gt;pocket extraction]
+  end
+
+  subgraph COMBINE[DrugCLIP combine_set source adapter]
+    C1[Directory and checksum&lt;br /&gt;inventory]
+    C2[Explicitly trusted&lt;br /&gt;pickle validation]
+    C3[Pickle-to-PDB&lt;br /&gt;metadata mapping]
+  end
+
+  P1 --&gt; P2 --&gt; P3 --&gt; N[Normalized sidecar rows]
+  C1 --&gt; C2 --&gt; C3 --&gt; N
+
+  N --&gt; S[Atomic Parquet sidecars]
+  S --&gt; L[Representation-aware&lt;br /&gt;LMDB export]
+  L --&gt; V[Cross-artifact validation]
+  V --&gt; R[Reports and final manifest]
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</section>
+<section id="module-map" class="level2" data-number="3.2">
+<h2 data-number="3.2" class="anchored" data-anchor-id="module-map"><span class="header-section-number">3.2</span> Module map</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Module</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>trusted_pickle.py</code></td>
+<td>Explicit trust gate, pickle loading, field/type/shape/finiteness validation, DrugCLIP token transformation</td>
+</tr>
+<tr class="even">
+<td><code>combine_set_mapping.py</code></td>
+<td>Exact ordered and spatial atom mapping from pickle geometry to neighboring pocket PDB files</td>
+</tr>
+<tr class="odd">
+<td><code>combine_set_source.py</code></td>
+<td>Discovery, selection, source inventory, stable identities, and normalized row production</td>
+</tr>
+<tr class="even">
+<td><code>combine_set_pipeline.py</code></td>
+<td>Run orchestration, stage checkpoints, optional RCSB enrichment, sidecars, LMDB, validation, and reports</td>
+</tr>
+<tr class="odd">
+<td><code>rcsb.py</code></td>
+<td>Content-addressed download plus checksum, compression, and mmCIF-identity validation; cache-only resolution performs no network I/O</td>
+</tr>
+<tr class="even">
+<td><code>rcsb_enrichment.py</code></td>
+<td>Source-neutral application of verified mmCIF mappings, UniProt links, ligand candidates, and structural citations</td>
+</tr>
+<tr class="odd">
+<td><code>rcsb_workflow.py</code></td>
+<td>Deterministic request planning, online prefetch manifests, and immutable cache-only derived runs</td>
+</tr>
+<tr class="even">
+<td><code>schemas.py</code></td>
+<td>Additive source-neutral sidecar schema v2</td>
+</tr>
+<tr class="odd">
+<td><code>sidecars.py</code></td>
+<td>Atomic writes plus compatibility reads for completed schema-v1 runs</td>
+</tr>
+<tr class="even">
+<td><code>lmdb_export.py</code></td>
+<td><code>source_pickle</code> and <code>post_transform</code> serialization contracts</td>
+</tr>
+<tr class="odd">
+<td><code>validation.py</code></td>
+<td>Representation-aware content hashes, joins, enums, and LMDB validation</td>
+</tr>
+<tr class="even">
+<td><code>cli.py</code></td>
+<td>Dedicated inventory/build commands and the source-neutral post-build RCSB workflow</td>
+</tr>
+</tbody>
+</table>
+<p>The original <code>pipeline.py</code>, ligand parser, DrugCLIP contract verifier, hashing, manifest, sidecar, reporting, and LMDB modules remain shared.</p>
+</section>
+</section>
+<section id="trust-boundary" class="level1" data-number="4">
+<h1 data-number="4"><span class="header-section-number">4</span> Trust boundary</h1>
+<section id="why-pickle-requires-an-explicit-decision" class="level2" data-number="4.1">
+<h2 data-number="4.1" class="anchored" data-anchor-id="why-pickle-requires-an-explicit-decision"><span class="header-section-number">4.1</span> Why pickle requires an explicit decision</h2>
+<p>Python pickle is not a passive data format. Deserializing a malicious payload can execute code. Checking a file’s extension, placing it in a subprocess, or computing its SHA-256 digest does not make it safe.</p>
+<p>The builder therefore refuses to deserialize <code>data.pkl</code> unless trust is explicitly authorized:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode toml code-with-copy"><code class="sourceCode toml"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">[combine_set]</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="dt">trusted_pickles</span> <span class="op">=</span> <span class="cn">true</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The same authorization can be made for one CLI invocation:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library build-combine-set <span class="dt">\</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--trust-pickles</span> <span class="dt">\</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pdb-id</span> 2h2h</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>This option must be enabled only for the known vendored DrugCLIP snapshot. It must not be reused for downloaded or user-supplied pickle files without a separate trust decision.</p>
+</section>
+<section id="inventory-is-safe-before-deserialization" class="level2" data-number="4.2">
+<h2 data-number="4.2" class="anchored" data-anchor-id="inventory-is-safe-before-deserialization"><span class="header-section-number">4.2</span> Inventory is safe before deserialization</h2>
+<p><code>inventory-combine-set</code> performs directory discovery, file classification, size checks, and SHA-256 hashing. It does not call <code>pickle.load</code>. This makes it possible to audit membership and provenance before authorizing executable serialization.</p>
+<p>During a build, source inventory and hashing also happen before record processing. The resulting manifest records:</p>
+<ul>
+<li>the source kind;</li>
+<li>the selected record count;</li>
+<li>every selected file checksum;</li>
+<li>the aggregate source fingerprint;</li>
+<li>the fact that trusted pickle execution was authorized.</li>
+</ul>
+</section>
+</section>
+<section id="discovery-selection-and-source-inventory" class="level1" data-number="5">
+<h1 data-number="5"><span class="header-section-number">5</span> Discovery, selection, and source inventory</h1>
+<section id="discovery-contract" class="level2" data-number="5.1">
+<h2 data-number="5.1" class="anchored" data-anchor-id="discovery-contract"><span class="header-section-number">5.1</span> Discovery contract</h2>
+<p>Discovery searches only direct children of the configured combine-set root and retains a directory only when it contains a regular <code>data.pkl</code> file. Records are sorted by normalized directory identifier. Duplicate identifiers are an error because a four-character directory name must identify one occurrence in this source snapshot.</p>
+<p>On the source snapshot used during implementation, discovery found 18,938 directories containing <code>data.pkl</code>. This is a snapshot observation, not a hard-coded expected count. The selected file hashes, not the count alone, define source identity.</p>
+</section>
+<section id="deterministic-selection" class="level2" data-number="5.2">
+<h2 data-number="5.2" class="anchored" data-anchor-id="deterministic-selection"><span class="header-section-number">5.2</span> Deterministic selection</h2>
+<p>Selection is applied after sorting:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># One named occurrence</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library inventory-combine-set <span class="dt">\</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pdb-id</span> 2h2h</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="co"># First ten sorted occurrences</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library inventory-combine-set <span class="dt">\</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">--limit</span> 10</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a><span class="co"># IDs from a text file, one per line</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library build-combine-set <span class="dt">\</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pdb-ids-file</span> selected-pdb-ids.txt</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Unlike the index-driven PDBbind source, this source has no release-year field that can support <code>--year-from</code> or <code>--year-to</code>. Those options are intentionally absent from the combine-set commands.</p>
+</section>
+<section id="file-roles" class="level2" data-number="5.3">
+<h2 data-number="5.3" class="anchored" data-anchor-id="file-roles"><span class="header-section-number">5.3</span> File roles</h2>
+<p>Each selected directory is inventoried completely. Expected filenames receive specific source kinds:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Filename</th>
+<th>Source role</th>
+<th>Primary use</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>data.pkl</code></td>
+<td><code>pickle</code></td>
+<td>Authoritative LMDB pocket geometry and source label</td>
+</tr>
+<tr class="even">
+<td><code>*_ligand.sdf</code></td>
+<td><code>ligand_sdf</code></td>
+<td>Primary ligand chemistry and geometry</td>
+</tr>
+<tr class="odd">
+<td><code>*_ligand.mol2</code></td>
+<td><code>ligand_mol2</code></td>
+<td>Ligand fallback and cross-format comparison</td>
+</tr>
+<tr class="even">
+<td><code>*_protein.pdb</code></td>
+<td><code>protein_pdb</code></td>
+<td>Protein provenance and future structure diagnostics</td>
+</tr>
+<tr class="odd">
+<td><code>*_pocket.pdb</code></td>
+<td><code>pocket_pdb</code></td>
+<td>Candidate source for atom-to-residue mapping</td>
+</tr>
+<tr class="even">
+<td><code>*_pocket6A.pdb</code></td>
+<td><code>pocket6a_pdb</code></td>
+<td>Alternative candidate source for atom-to-residue mapping</td>
+</tr>
+<tr class="odd">
+<td>any other file</td>
+<td><code>extra</code></td>
+<td>Retained inventory provenance</td>
+</tr>
+</tbody>
+</table>
+<p>A missing neighboring file creates a processing issue. A missing SDF and MOL2 together prevents ligand construction. A missing pocket PDB does not change the pickle geometry, but it can leave chain and residue mapping unresolved.</p>
+</section>
+</section>
+<section id="trusted-pickle-validation" class="level1" data-number="6">
+<h1 data-number="6"><span class="header-section-number">6</span> Trusted pickle validation</h1>
+<section id="required-pocket-fields" class="level2" data-number="6.1">
+<h2 data-number="6.1" class="anchored" data-anchor-id="required-pocket-fields"><span class="header-section-number">6.1</span> Required pocket fields</h2>
+<p>The loader requires a dictionary with these fields:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>required <span class="op">=</span> {</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">"pocket"</span>,</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"pocket_atoms"</span>,</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"pocket_coordinates"</span>,</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The <code>pocket</code> value must be nonempty and must agree case-insensitively with the directory identifier. <code>pocket_atoms</code> must be a nonempty sequence of nonempty tokens. <code>pocket_coordinates</code> must represent exactly one finite numeric <code>(n_atoms, 3)</code> coordinate array, and both fields must have equal lengths.</p>
+<p>Ligand-side <code>atoms</code> and <code>coordinates</code> fields are also shape-checked when present. They are retained as source audit information, while chemical identity comes from the neighboring SDF/MOL2 parser.</p>
+</section>
+<section id="why-coordinate-layouts-are-normalized-carefully" class="level2" data-number="6.2">
+<h2 data-number="6.2" class="anchored" data-anchor-id="why-coordinate-layouts-are-normalized-carefully"><span class="header-section-number">6.2</span> Why coordinate layouts are normalized carefully</h2>
+<p>DrugCLIP data can represent ligand coordinates as more than one conformer. A plain <code>numpy.asarray(value).reshape(...)</code> would be dangerous because it could silently merge conformers or change atom grouping.</p>
+<p>The loader accepts only explicit layouts:</p>
+<ul>
+<li>one <code>(atoms, 3)</code> numeric array;</li>
+<li>a numeric <code>(conformers, atoms, 3)</code> array;</li>
+<li>an iterable whose individual items are <code>(atoms, 3)</code> arrays.</li>
+</ul>
+<p>Pocket geometry must resolve to exactly one coordinate set. Ligand conformers do not create multiple pocket instances.</p>
+</section>
+<section id="drugclip-token-normalization" class="level2" data-number="6.3">
+<h2 data-number="6.3" class="anchored" data-anchor-id="drugclip-token-normalization"><span class="header-section-number">6.3</span> DrugCLIP token normalization</h2>
+<p>The active DrugCLIP <code>AffinityPocketDataset</code> reduces each source atom token to a single dictionary token:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> drugclip_pocket_token(atom: <span class="bu">str</span>) <span class="op">-&gt;</span> <span class="bu">str</span>:</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> atom[<span class="dv">0</span>].isdigit() <span class="kw">and</span> <span class="bu">len</span>(atom) <span class="op">&gt;</span> <span class="dv">1</span>:</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> atom[<span class="dv">1</span>]</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> atom[<span class="dv">0</span>]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>For example:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Source token</th>
+<th>DrugCLIP token</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>C</code></td>
+<td><code>C</code></td>
+</tr>
+<tr class="even">
+<td><code>H</code></td>
+<td><code>H</code></td>
+</tr>
+<tr class="odd">
+<td><code>1C</code></td>
+<td><code>C</code></td>
+</tr>
+</tbody>
+</table>
+<p>Validation checks the transformed tokens against the fingerprinted <code>dict_pkt.txt</code>. The raw source tokens remain in the LMDB because DrugCLIP owns the transformation. This checks compatibility without changing the source representation prematurely.</p>
+</section>
+</section>
+<section id="ligand-identity-and-geometry" class="level1" data-number="7">
+<h1 data-number="7"><span class="header-section-number">7</span> Ligand identity and geometry</h1>
+<p>The pickle does not provide a complete, validated ligand identity contract. The builder therefore reuses the established ligand parser:</p>
+<ol type="1">
+<li>try the configured primary format, normally SDF;</li>
+<li>fall back to MOL2 if necessary;</li>
+<li>require finite three-dimensional coordinates and resolved atomic numbers;</li>
+<li>retain disconnected component membership;</li>
+<li>derive SMILES, InChI, InChIKey, formula, charge, and molecular weight where RDKit can do so reliably;</li>
+<li>compare independently usable SDF and MOL2 structures;</li>
+<li>mint ligand content and derivation hashes.</li>
+</ol>
+<p>The parsed ligand has two roles in this builder:</p>
+<ul>
+<li>it provides auditable chemical identity;</li>
+<li>its heavy-atom coordinates support diagnostic pocket-to-ligand distances.</li>
+</ul>
+<p>It does <strong>not</strong> redefine membership of the pickle pocket.</p>
+</section>
+<section id="mapping-pickle-atoms-to-structure-metadata" class="level1" data-number="8">
+<h1 data-number="8"><span class="header-section-number">8</span> Mapping pickle atoms to structure metadata</h1>
+<section id="geometry-and-metadata-have-different-authority" class="level2" data-number="8.1">
+<h2 data-number="8.1" class="anchored" data-anchor-id="geometry-and-metadata-have-different-authority"><span class="header-section-number">8.1</span> Geometry and metadata have different authority</h2>
+<p>The pickle is authoritative for model input geometry. The neighboring PDB is a metadata source for atom names, residues, chain identifiers, occupancy, and B-factors. Mapping can annotate a pickle atom, but it cannot replace its token or coordinates.</p>
+<p>This separation prevents a plausible neighboring file from silently becoming the geometry source merely because it shares a PDB ID.</p>
+</section>
+<section id="candidate-files" class="level2" data-number="8.2">
+<h2 data-number="8.2" class="anchored" data-anchor-id="candidate-files"><span class="header-section-number">8.2</span> Candidate files</h2>
+<p>Both <code>*_pocket.pdb</code> and <code>*_pocket6A.pdb</code> are considered. Each is mapped independently. The preferred mapping is selected by:</p>
+<ol type="1">
+<li>greatest mapped-atom count;</li>
+<li>smallest maximum coordinate error;</li>
+<li>stable lexical source-role tie-break.</li>
+</ol>
+<p>The selected role is written to the comparison sidecar. The v2 comparison schema also names both sides explicitly:</p>
+<pre class="text"><code>left_geometry_role  = drugclip_combine_set_pickle
+right_geometry_role = pocket | pocket6a | neighbor_pocket_unavailable</code></pre>
+</section>
+<section id="exact-ordered-mapping" class="level2" data-number="8.3">
+<h2 data-number="8.3" class="anchored" data-anchor-id="exact-ordered-mapping"><span class="header-section-number">8.3</span> Exact ordered mapping</h2>
+<p>The strongest mapping occurs when all of the following hold:</p>
+<ul>
+<li>the PDB and pickle have equal atom counts;</li>
+<li>transformed pickle elements equal PDB elements in the same order;</li>
+<li>every coordinate error is within <code>combine_set.compare_coordinate_tolerance_angstrom</code>.</li>
+</ul>
+<p>Each atom then receives <code>source_mapping_status = "exact_ordered"</code>.</p>
+<p>This path is fast and preserves the strongest evidence that a neighboring PDB directly describes the pickle array.</p>
+</section>
+<section id="unique-spatial-fallback" class="level2" data-number="8.4">
+<h2 data-number="8.4" class="anchored" data-anchor-id="unique-spatial-fallback"><span class="header-section-number">8.4</span> Unique spatial fallback</h2>
+<p>When ordered equality fails, the mapper groups atoms by normalized element and builds a coordinate nearest-neighbor index for each group. A pickle atom is accepted only when:</p>
+<ul>
+<li>its nearest same-element PDB atom lies within <code>structure.coordinate_match_tolerance_angstrom</code>;</li>
+<li>there is no equal-distance nearest-neighbor tie;</li>
+<li>no other pickle atom claims the same PDB atom.</li>
+</ul>
+<p>An accepted fallback receives <code>spatial_unique</code>. Ties and collisions receive <code>ambiguous</code>; unmatched atoms receive <code>unresolved</code>.</p>
+<p>This fallback is intentionally conservative. It does not use residue names or the four-character PDB ID to manufacture an atom correspondence.</p>
+</section>
+<section id="mapping-quality-versus-geometry-quality" class="level2" data-number="8.5">
+<h2 data-number="8.5" class="anchored" data-anchor-id="mapping-quality-versus-geometry-quality"><span class="header-section-number">8.5</span> Mapping quality versus geometry quality</h2>
+<p>These dimensions answer different questions:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Dimension</th>
+<th>Question</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Geometry quality</td>
+<td>Is the source pickle internally valid and DrugCLIP-compatible?</td>
+</tr>
+<tr class="even">
+<td>Source mapping quality</td>
+<td>Can its atoms be assigned to neighboring PDB atom metadata?</td>
+</tr>
+<tr class="odd">
+<td>RCSB structure mapping quality</td>
+<td>Can contributing local chains be mapped to validated RCSB/mmCIF entities?</td>
+</tr>
+</tbody>
+</table>
+<p>A valid pickle can remain a usable candidate even when local structure mapping is incomplete. The uncertainty is surfaced in mapping columns and <code>processing_issues</code>; it does not rewrite the geometry.</p>
+</section>
+</section>
+<section id="stable-identities-and-hashes" class="level1" data-number="9">
+<h1 data-number="9"><span class="header-section-number">9</span> Stable identities and hashes</h1>
+<section id="complex-identity" class="level2" data-number="9.1">
+<h2 data-number="9.1" class="anchored" data-anchor-id="complex-identity"><span class="header-section-number">9.1</span> Complex identity</h2>
+<p>A combine-set complex ID is derived from:</p>
+<pre class="text"><code>distribution ID + normalized directory PDB ID + data.pkl SHA-256</code></pre>
+<p>Thus replacing a pickle in place changes the complex identity even if the directory name stays the same.</p>
+</section>
+<section id="pocket-content-hash" class="level2" data-number="9.2">
+<h2 data-number="9.2" class="anchored" data-anchor-id="pocket-content-hash"><span class="header-section-number">9.2</span> Pocket content hash</h2>
+<p>The source-pickle content hash covers the exact ordered source tokens and little-endian float32 coordinates:</p>
+<pre class="text"><code>length-frame(
+  "pocket-content-v2-source-pickle",
+  NUL-joined ordered atom tokens,
+  contiguous little-endian float32 coordinate bytes
+)</code></pre>
+<p>The validator independently regenerates this hash from <code>pocket_atoms.parquet</code>.</p>
+</section>
+<section id="pocket-derivation-hash" class="level2" data-number="9.3">
+<h2 data-number="9.3" class="anchored" data-anchor-id="pocket-derivation-hash"><span class="header-section-number">9.3</span> Pocket derivation hash</h2>
+<p>The derivation hash adds the source checksum, source pocket name, explicit preservation policy, derivation schema, and content hash. The pocket instance ID is minted from the complex ID and derivation hash.</p>
+<p>Content equality is not occurrence equality. Two occurrences with identical geometry can share a content hash while retaining distinct complex and pocket instance IDs.</p>
+</section>
+</section>
+<section id="sidecar-schema-v2" class="level1" data-number="10">
+<h1 data-number="10"><span class="header-section-number">10</span> Sidecar schema v2</h1>
+<section id="additive-source-neutral-fields" class="level2" data-number="10.1">
+<h2 data-number="10.1" class="anchored" data-anchor-id="additive-source-neutral-fields"><span class="header-section-number">10.1</span> Additive source-neutral fields</h2>
+<p>The original schema contains names tied to PDBbind re-extraction. Removing those columns would invalidate completed runs and downstream readers. Version 2 therefore evolves the schema additively.</p>
+<p>Important additions include:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Table</th>
+<th>Added fields</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>complexes</code></td>
+<td><code>geometry_origin</code>, <code>geometry_source_file_id</code></td>
+<td>Identify the authoritative geometry source</td>
+</tr>
+<tr class="even">
+<td><code>pockets</code></td>
+<td><code>geometry_origin</code>, <code>geometry_source_file_id</code>, <code>derivation_method</code>, source atom counts</td>
+<td>Explain how geometry entered the library</td>
+</tr>
+<tr class="odd">
+<td><code>pocket_atoms</code></td>
+<td><code>source_atom_key</code>, <code>geometry_source_file_id</code>, <code>source_mapping_status</code>, <code>included_in_lmdb_source</code></td>
+<td>Separate source ordering and mapping from legacy PDBbind naming</td>
+</tr>
+<tr class="even">
+<td><code>pocket_comparisons</code></td>
+<td><code>left_geometry_role</code>, <code>right_geometry_role</code></td>
+<td>Name representations without relying on legacy count-column names</td>
+</tr>
+<tr class="odd">
+<td><code>lmdb_records</code></td>
+<td><code>record_representation</code></td>
+<td>Select the correct serialization validation contract</td>
+</tr>
+</tbody>
+</table>
+<p>New PDBbind and combine-set builds write schema v2. The reader and validator continue to accept v1 files when their only difference is the absence of these additive columns. Missing v2 fields are materialized as null during a compatibility read.</p>
+</section>
+<section id="core-relationships" class="level2" data-number="10.2">
+<h2 data-number="10.2" class="anchored" data-anchor-id="core-relationships"><span class="header-section-number">10.2</span> Core relationships</h2>
+<div class="cell" data-fig-width="5.8" data-fig-height="4" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">erDiagram
+  SOURCE_FILES ||--o{ COMPLEXES : geometry_source
+  COMPLEXES ||--o{ LIGAND_INSTANCES : owns
+  COMPLEXES ||--o{ POCKETS : owns
+  LIGAND_INSTANCES ||--o{ POCKETS : defines_context
+  POCKETS ||--o{ POCKET_ATOMS : contains
+  POCKETS ||--o{ POCKET_RESIDUES : maps_to
+  POCKETS ||--o{ PROTEIN_CHAINS : contributes
+  POCKETS ||--o{ LMDB_RECORDS : serializes_as
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p>Primary keys, foreign keys, canonical sort order, and controlled enums are validated after writing.</p>
+</section>
+</section>
+<section id="representation-aware-lmdb-export" class="level1" data-number="11">
+<h1 data-number="11"><span class="header-section-number">11</span> Representation-aware LMDB export</h1>
+<section id="minimal-record-contract" class="level2" data-number="11.1">
+<h2 data-number="11.1" class="anchored" data-anchor-id="minimal-record-contract"><span class="header-section-number">11.1</span> Minimal record contract</h2>
+<p>Every candidate record contains exactly three fields:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">"pocket"</span>: pocket_instance_id,</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"pocket_atoms"</span>: ordered_atom_tokens,</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"pocket_coordinates"</span>: contiguous_little_endian_float32_array,</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The original pickle bytes are not copied into the library. The record is reconstructed from validated sidecars and serialized with pickle protocol 4. This prevents unrelated ligand or label fields from leaking into the candidate LMDB and makes the output contract uniform.</p>
+</section>
+<section id="source-pickle-export" class="level2" data-number="11.2">
+<h2 data-number="11.2" class="anchored" data-anchor-id="source-pickle-export"><span class="header-section-number">11.2</span> Source-pickle export</h2>
+<p>For <code>drugclip_export_view = "source_pickle"</code>, the exporter:</p>
+<ol type="1">
+<li>selects atoms with <code>included_in_lmdb_source = true</code>;</li>
+<li>orders them by <code>source_order</code>;</li>
+<li>retains raw source tokens, including <code>H</code>;</li>
+<li>converts coordinates deterministically to contiguous <code>&lt;f4</code>;</li>
+<li>permits an atom count greater than <code>pocket.max_pocket_atoms</code>;</li>
+<li>verifies that DrugCLIP’s token transformation reaches dictionary-supported tokens.</li>
+</ol>
+</section>
+<section id="post-transform-export" class="level2" data-number="11.3">
+<h2 data-number="11.3" class="anchored" data-anchor-id="post-transform-export"><span class="header-section-number">11.3</span> Post-transform export</h2>
+<p>For the existing PDBbind representation, the exporter:</p>
+<ol type="1">
+<li>selects <code>retained_after_crop = true</code>;</li>
+<li>orders by <code>export_order</code>;</li>
+<li>rejects hydrogen;</li>
+<li>enforces the configured maximum atom count;</li>
+<li>rejects lossy token transformation.</li>
+</ol>
+</section>
+<section id="dense-keys-and-checksums" class="level2" data-number="11.4">
+<h2 data-number="11.4" class="anchored" data-anchor-id="dense-keys-and-checksums"><span class="header-section-number">11.4</span> Dense keys and checksums</h2>
+<p>LMDB keys are dense ASCII integers:</p>
+<pre class="text"><code>0, 1, 2, ..., record_count - 1</code></pre>
+<p>Pocket instance IDs determine the canonical record order. Each <code>lmdb_records</code> row records:</p>
+<ul>
+<li>numeric key and record index;</li>
+<li>pocket instance and geometry hashes;</li>
+<li>representation;</li>
+<li>atom count;</li>
+<li>serialized record SHA-256;</li>
+<li>framed logical record SHA-256.</li>
+</ul>
+<p>Profile metadata also records the LMDB physical checksum, logical checksum, source sidecar checksums, dictionary/task/loader/helper hashes, pickle protocol, and map size. Embedding caches must be namespaced or invalidated using the logical LMDB checksum.</p>
+</section>
+</section>
+<section id="post-build-rcsb-and-uniprot-enrichment" class="level1" data-number="12">
+<h1 data-number="12"><span class="header-section-number">12</span> Post-build RCSB and UniProt enrichment</h1>
+<section id="why-enrichment-is-a-separate-workflow" class="level2" data-number="12.1">
+<h2 data-number="12.1" class="anchored" data-anchor-id="why-enrichment-is-a-separate-workflow"><span class="header-section-number">12.1</span> Why enrichment is a separate workflow</h2>
+<p>The dedicated combine-set configuration is intentionally offline:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode toml code-with-copy"><code class="sourceCode toml"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="kw">[pipeline]</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="dt">offline</span> <span class="op">=</span> <span class="cn">true</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a><span class="kw">[rcsb]</span></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a><span class="dt">download_mmcif</span> <span class="op">=</span> <span class="cn">false</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>This is the appropriate default for Sagres because CPU and GPU compute nodes do not have internet access. More importantly, external-service availability should not determine whether the expensive geometry build succeeds. The implemented workflow therefore separates three concerns:</p>
+<ol type="1">
+<li>the completed offline library determines exactly which PDB IDs are needed;</li>
+<li>a networked management node downloads and verifies those mmCIF files;</li>
+<li>an offline CPU node derives a new enriched run from the verified cache.</li>
+</ol>
+<p>The same commands accept either a combine-set run or a PDBbind run because both libraries publish the same normalized sidecar contract.</p>
+<div class="cell" data-fig-width="6" data-fig-height="4" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TD
+  A[Completed offline library] --&gt; B[plan-rcsb]
+  B --&gt; C[Deterministic request TSV]
+  C --&gt; D[prefetch-rcsb on management node]
+  D --&gt; E[Content-addressed cache and manifest]
+  E --&gt; F[enrich-from-cache on CPU node]
+  A --&gt; F
+  F --&gt; G[Validated immutable derived run]
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p>Only <code>prefetch-rcsb</code> needs internet access. <code>plan-rcsb</code> and <code>enrich-from-cache</code> contain no download step. None of the three commands needs or uses a GPU; parsing mmCIF and writing Parquet are CPU operations.</p>
+</section>
+<section id="request-planning" class="level2" data-number="12.2">
+<h2 data-number="12.2" class="anchored" data-anchor-id="request-planning"><span class="header-section-number">12.2</span> Request planning</h2>
+<p><code>plan-rcsb</code> reads accepted complexes from a complete run and writes sorted, unique PDB IDs. The TSV begins with canonical JSON metadata containing the parent run ID, manifest checksum, stable identity fields, relevant logical sidecar hashes, and the requested count. The body is deliberately simple so it can be audited with ordinary text tools.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library plan-rcsb <span class="dt">\</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/drugclip_combine_set/<span class="op">&lt;</span>offline-run-id<span class="op">&gt;</span> <span class="dt">\</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output</span> rcsb-request.tsv</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The command refuses to replace an existing request unless <code>--overwrite</code> is given. Request planning requires a <code>complete</code> run, not a <code>sidecars_complete</code> run, because post-build enrichment preserves a published LMDB as part of the derived library.</p>
+</section>
+<section id="management-node-prefetch" class="level2" data-number="12.3">
+<h2 data-number="12.3" class="anchored" data-anchor-id="management-node-prefetch"><span class="header-section-number">12.3</span> Management-node prefetch</h2>
+<p>On a node with internet access, <code>prefetch-rcsb</code> downloads the exact request into the established content-addressed cache:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library prefetch-rcsb <span class="dt">\</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--request</span> rcsb-request.tsv <span class="dt">\</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--cache-dir</span> /shared/biosensia/rcsb-cache</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>For this command, the CLI explicitly enables online operation even if the supplied build configuration is offline. Existing valid cache entries are reused. Each entry is accepted only when all of the following hold:</p>
+<ul>
+<li>its reference names the configured compressed or uncompressed form;</li>
+<li>the content-addressed object exists;</li>
+<li>the object’s SHA-256 equals the reference checksum;</li>
+<li>decompression succeeds when required;</li>
+<li>Gemmi can parse the mmCIF;</li>
+<li>the mmCIF data-block identity equals the requested PDB ID.</li>
+</ul>
+<p>After download, the command resolves every request again through the no-network cache validator. It writes a prefetch manifest below <code>&lt;cache-dir&gt;/manifests/rcsb_mmcif/</code> containing the request, portable relative cache paths, payload and reference checksums, retrieval metadata, failures, and a cache fingerprint. The command fails when any entry is missing by default; <code>--allow-partial</code> is an explicit exception for a deliberately partial cache.</p>
+</section>
+<section id="offline-cache-application" class="level2" data-number="12.4">
+<h2 data-number="12.4" class="anchored" data-anchor-id="offline-cache-application"><span class="header-section-number">12.4</span> Offline cache application</h2>
+<p>Once the cache is visible on a compute node, invoke:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library enrich-from-cache <span class="dt">\</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/drugclip_combine_set/<span class="op">&lt;</span>offline-run-id<span class="op">&gt;</span> <span class="dt">\</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--cache-dir</span> /shared/biosensia/rcsb-cache</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The command automatically loads the parent run’s <code>config.resolved.toml</code>, forces offline execution, and points external-cache resolution at <code>--cache-dir</code>. It validates the parent and every requested cache object before creating output. An incomplete cache is a hard error unless <code>--allow-partial</code> is supplied.</p>
+<p>The original run is never edited. The derived run is written beside it by default, or below <code>--output-root</code>, with an ID of the form:</p>
+<pre class="text"><code>&lt;parent-run-id&gt;-rcsb-v1-&lt;enrichment-identity12&gt;</code></pre>
+<p>The enrichment identity covers the stable parent identity, relevant logical sidecar hashes, cache fingerprint, compression form, and partial-cache policy. The manifest records the parent manifest checksum and cache records, and states <code>network_access_used = false</code> for the enrichment step.</p>
+<p>Unchanged Parquet and LMDB files are hard-linked when the filesystem permits and copied otherwise. Atomic replacement breaks links only for sidecars that must change. The LMDB payload is not regenerated: its physical and logical checksums remain identical to the parent. Its profile JSON is updated with the new <code>pockets.parquet</code> checksum and parent/cache provenance.</p>
+<p>Cache-only enrichment can populate:</p>
+<ul>
+<li>chain mapping candidates and selected RCSB entity mappings;</li>
+<li>chain-to-UniProt mappings and residue ranges;</li>
+<li>ligand mapping candidates;</li>
+<li>structure citations and authors;</li>
+<li>structural-citation evidence for affinity-reference adjudication;</li>
+<li>RCSB cache objects and references in <code>source_files.parquet</code>.</li>
+</ul>
+<p>The command rejects a parent that is already RCSB-enriched, preventing an ambiguous second application. With <code>--allow-partial</code>, absent or unparseable entries become <code>RCSB_ENRICHMENT_FAILED</code> issues and receive explicit <code>unavailable</code> status. In all cases, enrichment cannot change atom membership, coordinates, content hashes, LMDB record order, or LMDB eligibility.</p>
+</section>
+<section id="the-same-workflow-for-pdbbind" class="level2" data-number="12.5">
+<h2 data-number="12.5" class="anchored" data-anchor-id="the-same-workflow-for-pdbbind"><span class="header-section-number">12.5</span> The same workflow for PDBbind</h2>
+<p>No PDBbind-specific variant is needed. Substitute a completed PDBbind run in the planning and enrichment commands:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library plan-rcsb <span class="dt">\</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/pdbbind_2020_v2024p_20250804/<span class="op">&lt;</span>offline-run-id<span class="op">&gt;</span> <span class="dt">\</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output</span> pdbbind-rcsb-request.tsv</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library enrich-from-cache <span class="dt">\</span></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/pdbbind_2020_v2024p_20250804/<span class="op">&lt;</span>offline-run-id<span class="op">&gt;</span> <span class="dt">\</span></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">--cache-dir</span> /shared/biosensia/rcsb-cache</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The earlier inline online enrichment mode remains available for local workstations, but the staged workflow is the recommended operational path for both libraries on Sagres.</p>
+</section>
+</section>
+<section id="build-orchestration-and-run-identity" class="level1" data-number="13">
+<h1 data-number="13"><span class="header-section-number">13</span> Build orchestration and run identity</h1>
+<section id="stage-flow" class="level2" data-number="13.1">
+<h2 data-number="13.1" class="anchored" data-anchor-id="stage-flow"><span class="header-section-number">13.1</span> Stage flow</h2>
+<div class="cell" data-fig-width="5.6" data-fig-height="4.2" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TD
+  A[Source discovery, selection, checksums, and run identity]
+  A --&gt; B[Trusted pickle validation, ligand parsing, and local mapping]
+  B --&gt; C[Canonical Parquet sidecars and DrugCLIP LMDB]
+  C --&gt; D[Cross-artifact validation, reports, and offline manifest]
+  D -. optional post-build .-&gt; E[Planned RCSB cache and validated enriched derived run]
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+</section>
+<section id="run-directory-name" class="level2" data-number="13.2">
+<h2 data-number="13.2" class="anchored" data-anchor-id="run-directory-name"><span class="header-section-number">13.2</span> Run directory name</h2>
+<p>The run ID exposes abbreviated fingerprints:</p>
+<pre class="text"><code>dc-combine-v1-&lt;semantic8&gt;-&lt;source8&gt;-&lt;selection8&gt;-&lt;contract8&gt;</code></pre>
+<p>The full values remain in <code>manifest.json</code>.</p>
+<p>The semantic configuration hash covers content-affecting configuration, including trust/preservation policy and quality rules. Source paths do not enter that hash because selected contents are independently fingerprinted. Worker count and progress display are operational settings and do not alter logical outputs.</p>
+</section>
+<section id="resume-and-overwrite" class="level2" data-number="13.3">
+<h2 data-number="13.3" class="anchored" data-anchor-id="resume-and-overwrite"><span class="header-section-number">13.3</span> Resume and overwrite</h2>
+<p><code>--resume</code> accepts an existing run only when semantic, source, selection, and DrugCLIP contract fingerprints all match. A complete compatible run is returned without rebuilding.</p>
+<p><code>--overwrite-run</code> does not delete an existing run. It first moves it to a timestamped sibling backup, then creates the new run at the identity-derived path.</p>
+</section>
+</section>
+<section id="configuration-guide" class="level1" data-number="14">
+<h1 data-number="14"><span class="header-section-number">14</span> Configuration guide</h1>
+<p>The supplied configuration is <code>config/drugclip-combine-set-library.toml</code>. Its essential source-specific settings are:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode toml code-with-copy"><code class="sourceCode toml"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="kw">[paths]</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="dt">combine_set_root</span> <span class="op">=</span> <span class="st">"BioSensIA-DC/external/DrugCLIP/data/pdb/combine_set"</span></span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="dt">combine_set_output_root</span> <span class="op">=</span> <span class="st">"data/processed/drugclip_combine_set"</span></span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a><span class="dt">drugclip_dir</span> <span class="op">=</span> <span class="st">"BioSensIA-DC/external/DrugCLIP"</span></span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a><span class="dt">drugclip_dictionary</span> <span class="op">=</span> <span class="st">"BioSensIA-DC/external/DrugCLIP/data/dict_pkt.txt"</span></span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a><span class="kw">[combine_set]</span></span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a><span class="dt">trusted_pickles</span> <span class="op">=</span> <span class="cn">true</span></span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a><span class="dt">distribution_id</span> <span class="op">=</span> <span class="st">"drugclip-combine-set"</span></span>
+<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a><span class="dt">nominal_release</span> <span class="op">=</span> <span class="st">"unversioned-vendored-snapshot"</span></span>
+<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a><span class="dt">preserve_source_geometry</span> <span class="op">=</span> <span class="cn">true</span></span>
+<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a><span class="dt">compare_coordinate_tolerance_angstrom</span> <span class="op">=</span> <span class="fl">0.0001</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>preserve_source_geometry = false</code> is rejected. The current builder has no mode that silently filters or crops source pickle geometry.</p>
+</section>
+<section id="operating-guide" class="level1" data-number="15">
+<h1 data-number="15"><span class="header-section-number">15</span> Operating guide</h1>
+<section id="install-and-verify-the-environment" class="level2" data-number="15.1">
+<h2 data-number="15.1" class="anchored" data-anchor-id="install-and-verify-the-environment"><span class="header-section-number">15.1</span> 1. Install and verify the environment</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> sync</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library check-drugclip-contract <span class="dt">\</span></span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The contract check fingerprints the pocket dictionary, DrugCLIP task, relevant loader wrappers, and BioSensIA LMDB helper. It reports but does not hash the encoder checkpoint because the checkpoint is not a library-construction input.</p>
+</section>
+<section id="inventory-without-deserializing" class="level2" data-number="15.2">
+<h2 data-number="15.2" class="anchored" data-anchor-id="inventory-without-deserializing"><span class="header-section-number">15.2</span> 2. Inventory without deserializing</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library inventory-combine-set <span class="dt">\</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pdb-id</span> 2h2h</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The implementation-time <code>2h2h</code> inventory reported one selected bundle, six files, and no inventory issues.</p>
+</section>
+<section id="build-a-small-audit-selection" class="level2" data-number="15.3">
+<h2 data-number="15.3" class="anchored" data-anchor-id="build-a-small-audit-selection"><span class="header-section-number">15.3</span> 3. Build a small audit selection</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library build-combine-set <span class="dt">\</span></span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--limit</span> 10</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Use a small deterministic selection before a full run to verify local paths, available memory, ligand parsing behavior, and expected mapping quality.</p>
+</section>
+<section id="build-sidecars-without-lmdb" class="level2" data-number="15.4">
+<h2 data-number="15.4" class="anchored" data-anchor-id="build-sidecars-without-lmdb"><span class="header-section-number">15.4</span> 4. Build sidecars without LMDB</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library build-combine-set-sidecars <span class="dt">\</span></span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pdb-ids-file</span> selected-pdb-ids.txt</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>This produces a <code>sidecars_complete</code> run. The shared <code>finalize</code> command can later export the default LMDB and finish validation and reporting.</p>
+</section>
+<section id="build-the-complete-selected-library" class="level2" data-number="15.5">
+<h2 data-number="15.5" class="anchored" data-anchor-id="build-the-complete-selected-library"><span class="header-section-number">15.5</span> 5. Build the complete selected library</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library build-combine-set <span class="dt">\</span></span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pdb-ids-file</span> selected-pdb-ids.txt</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Omit all selection arguments to select every discovered <code>data.pkl</code> occurrence.</p>
+</section>
+<section id="validate-independently" class="level2" data-number="15.6">
+<h2 data-number="15.6" class="anchored" data-anchor-id="validate-independently"><span class="header-section-number">15.6</span> 6. Validate independently</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library validate <span class="dt">\</span></span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/drugclip_combine_set/<span class="op">&lt;</span>run-id<span class="op">&gt;</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="plan-the-optional-external-request" class="level2" data-number="15.7">
+<h2 data-number="15.7" class="anchored" data-anchor-id="plan-the-optional-external-request"><span class="header-section-number">15.7</span> 7. Plan the optional external request</h2>
+<p>This step can run on the same offline CPU node that built the library:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library plan-rcsb <span class="dt">\</span></span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/drugclip_combine_set/<span class="op">&lt;</span>run-id<span class="op">&gt;</span> <span class="dt">\</span></span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--output</span> rcsb-request.tsv</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="prefetch-on-the-management-node" class="level2" data-number="15.8">
+<h2 data-number="15.8" class="anchored" data-anchor-id="prefetch-on-the-management-node"><span class="header-section-number">15.8</span> 8. Prefetch on the management node</h2>
+<p>Move only the request file to the internet-connected management node if the library filesystem is not mounted there. Then populate a shared or transferable cache:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library prefetch-rcsb <span class="dt">\</span></span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/drugclip-combine-set-library.toml <span class="dt">\</span></span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--request</span> rcsb-request.tsv <span class="dt">\</span></span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--cache-dir</span> /shared/biosensia/rcsb-cache</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>If <code>/shared</code> is unavailable to compute nodes, transfer the entire cache root, including <code>objects/</code>, <code>request_index/</code>, and <code>manifests/</code>, to node-local or job storage. Relative paths in the prefetch manifest make the cache relocatable.</p>
+</section>
+<section id="derive-the-enriched-library-offline" class="level2" data-number="15.9">
+<h2 data-number="15.9" class="anchored" data-anchor-id="derive-the-enriched-library-offline"><span class="header-section-number">15.9</span> 9. Derive the enriched library offline</h2>
+<p>Run this on a CPU node. A GPU allocation provides no benefit.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library enrich-from-cache <span class="dt">\</span></span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/drugclip_combine_set/<span class="op">&lt;</span>run-id<span class="op">&gt;</span> <span class="dt">\</span></span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--cache-dir</span> /shared/biosensia/rcsb-cache</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The command prints the derived run path. Preserve the printed path rather than assuming the identity suffix.</p>
+</section>
+<section id="validate-the-derived-run-independently" class="level2" data-number="15.10">
+<h2 data-number="15.10" class="anchored" data-anchor-id="validate-the-derived-run-independently"><span class="header-section-number">15.10</span> 10. Validate the derived run independently</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library validate <span class="dt">\</span></span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/drugclip_combine_set/<span class="op">&lt;</span>derived-run-id<span class="op">&gt;</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="regenerate-reports" class="level2" data-number="15.11">
+<h2 data-number="15.11" class="anchored" data-anchor-id="regenerate-reports"><span class="header-section-number">15.11</span> 11. Regenerate reports</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb31"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library report <span class="dt">\</span></span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/drugclip_combine_set/<span class="op">&lt;</span>derived-run-id<span class="op">&gt;</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+</section>
+<section id="output-layout" class="level1" data-number="16">
+<h1 data-number="16"><span class="header-section-number">16</span> Output layout</h1>
+<pre class="text"><code>data/processed/drugclip_combine_set/&lt;run-id&gt;/
+├── config.resolved.toml
+├── manifest.json
+├── checkpoints/
+├── logs/
+├── sidecars/
+│   ├── source_files.parquet
+│   ├── complexes.parquet
+│   ├── ligand_instances.parquet
+│   ├── pockets.parquet
+│   ├── pocket_atoms.parquet
+│   ├── pocket_residues.parquet
+│   ├── protein_chains.parquet
+│   ├── pocket_comparisons.parquet
+│   ├── processing_issues.parquet
+│   ├── lmdb_records.parquet
+│   └── ...
+├── lmdb/
+│   ├── candidate_pockets.lmdb
+│   └── candidate_pockets.lmdb.profile.json
+└── reports/
+    ├── build_summary.json
+    ├── build_summary.md
+    └── *.parquet</code></pre>
+<p>Coordinate-bearing outputs inherit the source data’s access and redistribution constraints and must not be committed or redistributed without authorization.</p>
+</section>
+<section id="validation-model" class="level1" data-number="17">
+<h1 data-number="17"><span class="header-section-number">17</span> Validation model</h1>
+<p>Validation is layered so that a checksum alone cannot make an invalid library appear sound.</p>
+<section id="source-record-validation" class="level2" data-number="17.1">
+<h2 data-number="17.1" class="anchored" data-anchor-id="source-record-validation"><span class="header-section-number">17.1</span> Source-record validation</h2>
+<ul>
+<li>explicitly authorized pickle execution;</li>
+<li>dictionary record type;</li>
+<li>required pocket fields;</li>
+<li>one finite pocket coordinate set;</li>
+<li>equal atom and coordinate counts;</li>
+<li>nonempty pocket name matching the directory;</li>
+<li>transformed token coverage by the active dictionary.</li>
+</ul>
+</section>
+<section id="sidecar-validation" class="level2" data-number="17.2">
+<h2 data-number="17.2" class="anchored" data-anchor-id="sidecar-validation"><span class="header-section-number">17.2</span> Sidecar validation</h2>
+<ul>
+<li>exact current schema or compatible additive v1 schema;</li>
+<li>canonical row order;</li>
+<li>primary-key uniqueness;</li>
+<li>controlled enum values;</li>
+<li>foreign-key integrity;</li>
+<li>accepted pockets have atom rows;</li>
+<li>derivation hashes map consistently to content hashes;</li>
+<li>regenerated geometry hashes match pocket rows.</li>
+</ul>
+</section>
+<section id="lmdb-validation" class="level2" data-number="17.3">
+<h2 data-number="17.3" class="anchored" data-anchor-id="lmdb-validation"><span class="header-section-number">17.3</span> LMDB validation</h2>
+<ul>
+<li>dense numeric keys;</li>
+<li>entry count equals <code>lmdb_records</code> count;</li>
+<li>exact three-field record shape;</li>
+<li>pocket name equals the sidecar-ordered pocket instance ID;</li>
+<li>contiguous little-endian float32 coordinates;</li>
+<li>finite <code>(n_atoms, 3)</code> geometry;</li>
+<li>representation-specific hydrogen, token, and atom-count rules.</li>
+</ul>
+</section>
+<section id="manifest-and-artifact-validation" class="level2" data-number="17.4">
+<h2 data-number="17.4" class="anchored" data-anchor-id="manifest-and-artifact-validation"><span class="header-section-number">17.4</span> Manifest and artifact validation</h2>
+<ul>
+<li>run-directory name equals manifest run ID;</li>
+<li>source, selection, semantic, and DrugCLIP contract fingerprints are recorded;</li>
+<li>profile metadata contains sidecar and LMDB hashes;</li>
+<li>final artifact inventory records physical file sizes and SHA-256 values.</li>
+</ul>
+</section>
+<section id="post-build-enrichment-validation" class="level2" data-number="17.5">
+<h2 data-number="17.5" class="anchored" data-anchor-id="post-build-enrichment-validation"><span class="header-section-number">17.5</span> Post-build enrichment validation</h2>
+<ul>
+<li>request IDs are canonical, unique, sorted, and count-consistent;</li>
+<li>cache references and objects are revalidated without network access;</li>
+<li>the parent run must be complete, valid, and not already RCSB-enriched;</li>
+<li>the derived manifest records parent, cache, code, and configuration provenance;</li>
+<li>changed sidecars are rewritten atomically and all foreign keys are rechecked;</li>
+<li>the derived LMDB checksum must remain the reused parent checksum;</li>
+<li>the complete derived run passes the same relational and LMDB validator as a directly built library.</li>
+</ul>
+</section>
+</section>
+<section id="test-strategy-and-observed-evidence" class="level1" data-number="18">
+<h1 data-number="18"><span class="header-section-number">18</span> Test strategy and observed evidence</h1>
+<section id="synthetic-tests" class="level2" data-number="18.1">
+<h2 data-number="18.1" class="anchored" data-anchor-id="synthetic-tests"><span class="header-section-number">18.1</span> Synthetic tests</h2>
+<p>The synthetic end-to-end fixture deliberately creates a source pickle with:</p>
+<ul>
+<li>atoms <code>C</code>, <code>H</code>, and <code>N</code>;</li>
+<li>three coordinates;</li>
+<li>a configured post-transform maximum of two atoms;</li>
+<li>an exactly matching pocket PDB;</li>
+<li>a valid ligand SDF;</li>
+<li>a DrugCLIP affinity label.</li>
+</ul>
+<p>The test proves that:</p>
+<ul>
+<li>trust is mandatory;</li>
+<li>nonfinite pickle coordinates are rejected;</li>
+<li>exact ordered mapping succeeds;</li>
+<li>the source atom count remains three;</li>
+<li>hydrogen remains present in the serialized LMDB;</li>
+<li>the two-atom post-transform limit does not reject a <code>source_pickle</code> record;</li>
+<li>the serialized coordinate array is contiguous little-endian float32;</li>
+<li>complete run validation succeeds.</li>
+</ul>
+<p>Additional tests cover CLI parsing, automatic LMDB map growth, schema-v1 compatibility, existing PDBbind behavior, deterministic worker-count outputs, finalization, source-neutral PDBbind request planning, deterministic request round trips, cache-manifest generation, offline enrichment, parent immutability, LMDB checksum reuse, strict incomplete-cache failure, and checksum-tampering rejection.</p>
+<p>At the time this document was written, the complete test suite reported:</p>
+<pre class="text"><code>37 passed</code></pre>
+</section>
+<section id="real-source-verification" class="level2" data-number="18.2">
+<h2 data-number="18.2" class="anchored" data-anchor-id="real-source-verification"><span class="header-section-number">18.2</span> Real-source verification</h2>
+<p>The final implementation was exercised against the real <code>2h2h</code> bundle. The run reported:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Metric</th>
+<th style="text-align: right;">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Source pickle atoms</td>
+<td style="text-align: right;">480</td>
+</tr>
+<tr class="even">
+<td>Source heavy atoms</td>
+<td style="text-align: right;">238</td>
+</tr>
+<tr class="odd">
+<td>Hydrogen retained in candidate LMDB</td>
+<td style="text-align: right;">yes</td>
+</tr>
+<tr class="even">
+<td>Atoms mapped to neighboring PDB</td>
+<td style="text-align: right;">480</td>
+</tr>
+<tr class="odd">
+<td>Local mapping quality</td>
+<td style="text-align: right;">exact</td>
+</tr>
+<tr class="even">
+<td>Pocket comparison quality</td>
+<td style="text-align: right;">concordant</td>
+</tr>
+<tr class="odd">
+<td>LMDB record representation</td>
+<td style="text-align: right;"><code>source_pickle</code></td>
+</tr>
+<tr class="even">
+<td>Independent run validation</td>
+<td style="text-align: right;">passed</td>
+</tr>
+</tbody>
+</table>
+<p>These values are verification evidence for that source occurrence, not global assumptions about all 18,938 discovered pickles.</p>
+</section>
+</section>
+<section id="performance-and-scaling" class="level1" data-number="19">
+<h1 data-number="19"><span class="header-section-number">19</span> Performance and scaling</h1>
+<section id="bounded-processing-concurrency" class="level2" data-number="19.1">
+<h2 data-number="19.1" class="anchored" data-anchor-id="bounded-processing-concurrency"><span class="header-section-number">19.1</span> Bounded processing concurrency</h2>
+<p><code>pipeline.workers</code> controls source-record processing. The bounded scheduler submits at most that many jobs and yields completed jobs without waiting for an earlier slow record. Canonical sidecar sorting ensures that worker completion order does not change logical outputs.</p>
+</section>
+<section id="memory-planning" class="level2" data-number="19.2">
+<h2 data-number="19.2" class="anchored" data-anchor-id="memory-planning"><span class="header-section-number">19.2</span> Memory planning</h2>
+<p>The current shared sidecar architecture materializes selected normalized rows before the atomic Parquet write and reads atom sidecars during LMDB export and validation. Raw combine-set pockets can contain many atoms, including hydrogen. Consequently, a full-source run needs materially more memory and storage than a small audit selection.</p>
+<p>Before a full run:</p>
+<ol type="1">
+<li>build representative <code>--limit</code> selections;</li>
+<li>inspect pocket-size reports and peak memory;</li>
+<li>confirm output and temporary filesystem capacity;</li>
+<li>choose workers based on memory, not CPU count alone;</li>
+<li>retain the run’s resolved configuration and inventory output.</li>
+</ol>
+<p>This is an operational scaling constraint, not a reason to discard source atoms. A future streaming sidecar writer must preserve the same ordering, hashing, relational, and atomic-publication contracts.</p>
+</section>
+<section id="compute-and-network-placement" class="level2" data-number="19.3">
+<h2 data-number="19.3" class="anchored" data-anchor-id="compute-and-network-placement"><span class="header-section-number">19.3</span> Compute and network placement</h2>
+<p>The geometry build and post-build enrichment are CPU workloads. They use threaded parsing and hashing but contain no CUDA path. Request planning is lightweight. Prefetch is network-bound with modest CPU use for decompression and mmCIF validation. On Sagres, use this placement:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Step</th>
+<th>Recommended node</th>
+<th style="text-align: right;">Internet</th>
+<th style="text-align: right;">GPU</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>combine-set or PDBbind build</td>
+<td>CPU compute</td>
+<td style="text-align: right;">no</td>
+<td style="text-align: right;">no</td>
+</tr>
+<tr class="even">
+<td><code>plan-rcsb</code></td>
+<td>CPU compute or management</td>
+<td style="text-align: right;">no</td>
+<td style="text-align: right;">no</td>
+</tr>
+<tr class="odd">
+<td><code>prefetch-rcsb</code></td>
+<td>management</td>
+<td style="text-align: right;">yes</td>
+<td style="text-align: right;">no</td>
+</tr>
+<tr class="even">
+<td><code>enrich-from-cache</code></td>
+<td>CPU compute</td>
+<td style="text-align: right;">no</td>
+<td style="text-align: right;">no</td>
+</tr>
+</tbody>
+</table>
+<p>The cache can be populated before submitting the enrichment job. The job then depends only on local/shared files and cannot accidentally contact RCSB.</p>
+</section>
+</section>
+<section id="troubleshooting" class="level1" data-number="20">
+<h1 data-number="20"><span class="header-section-number">20</span> Troubleshooting</h1>
+<section id="refusal-to-deserialize-pickle" class="level2" data-number="20.1">
+<h2 data-number="20.1" class="anchored" data-anchor-id="refusal-to-deserialize-pickle"><span class="header-section-number">20.1</span> Refusal to deserialize pickle</h2>
+<pre class="text"><code>combine_set builds require combine_set.trusted_pickles=true</code></pre>
+<p>Confirm that the configured root is the trusted vendored DrugCLIP snapshot, then use the dedicated configuration or the explicit CLI flag. Do not bypass the check for an unknown source.</p>
+</section>
+<section id="pickle-shape-or-finiteness-error" class="level2" data-number="20.2">
+<h2 data-number="20.2" class="anchored" data-anchor-id="pickle-shape-or-finiteness-error"><span class="header-section-number">20.2</span> Pickle shape or finiteness error</h2>
+<p>The record is rejected and listed in <code>processing_issues.parquet</code>. Do not reshape or truncate the record manually. Determine whether the source snapshot is corrupt or whether a new coordinate layout needs an explicit, tested parser.</p>
+</section>
+<section id="dictionary-lacks-transformed-tokens" class="level2" data-number="20.3">
+<h2 data-number="20.3" class="anchored" data-anchor-id="dictionary-lacks-transformed-tokens"><span class="header-section-number">20.3</span> Dictionary lacks transformed tokens</h2>
+<p>The active <code>dict_pkt.txt</code> is incompatible with the selected source record or the configured DrugCLIP checkout. Verify the symlink, contract fingerprint, and dictionary provenance before considering a token policy change.</p>
+</section>
+<section id="incomplete-atom-mapping" class="level2" data-number="20.4">
+<h2 data-number="20.4" class="anchored" data-anchor-id="incomplete-atom-mapping"><span class="header-section-number">20.4</span> Incomplete atom mapping</h2>
+<p>Inspect:</p>
+<ul>
+<li><code>pocket_atoms.source_mapping_status</code>;</li>
+<li><code>pocket_comparisons.left_geometry_role</code> and <code>right_geometry_role</code>;</li>
+<li>coordinate tolerances in resolved configuration;</li>
+<li>the neighboring <code>pocket.pdb</code> and <code>pocket6A.pdb</code> source checksums.</li>
+</ul>
+<p>An incomplete mapping does not imply invalid pickle geometry. It means that residue or chain annotations are incomplete and must not be guessed.</p>
+</section>
+<section id="existing-run-already-present" class="level2" data-number="20.5">
+<h2 data-number="20.5" class="anchored" data-anchor-id="existing-run-already-present"><span class="header-section-number">20.5</span> Existing run already present</h2>
+<p>Use <code>--resume</code> only for an identical run identity. Use <code>--overwrite-run</code> to preserve the old directory as a timestamped backup before rebuilding.</p>
+</section>
+<section id="rcsb-cache-is-incomplete" class="level2" data-number="20.6">
+<h2 data-number="20.6" class="anchored" data-anchor-id="rcsb-cache-is-incomplete"><span class="header-section-number">20.6</span> RCSB cache is incomplete</h2>
+<p>Re-run <code>prefetch-rcsb</code> on the management node using the same request and cache root. The command reuses valid objects and downloads only unresolved entries. Inspect the written prefetch manifest for per-PDB failure details. Use <code>--allow-partial</code> only when unavailable mappings are an intentional, recorded outcome.</p>
+</section>
+<section id="parent-run-is-already-rcsb-enriched" class="level2" data-number="20.7">
+<h2 data-number="20.7" class="anchored" data-anchor-id="parent-run-is-already-rcsb-enriched"><span class="header-section-number">20.7</span> Parent run is already RCSB-enriched</h2>
+<p>Post-build enrichment is a one-step derivation from an offline parent. Select the original offline run instead of chaining enrichment onto an already enriched run. This keeps parent/cache provenance and failure semantics unambiguous.</p>
+</section>
+<section id="cache-checksum-or-mmcif-identity-failure" class="level2" data-number="20.8">
+<h2 data-number="20.8" class="anchored" data-anchor-id="cache-checksum-or-mmcif-identity-failure"><span class="header-section-number">20.8</span> Cache checksum or mmCIF identity failure</h2>
+<p>Treat the object as corrupt or incorrectly indexed. Do not edit its reference JSON to bypass validation. Remove or quarantine the bad cache entry on the management node and run <code>prefetch-rcsb --refresh-cache</code> to retrieve and verify a replacement.</p>
+</section>
+<section id="validation-reports-a-content-hash-mismatch" class="level2" data-number="20.9">
+<h2 data-number="20.9" class="anchored" data-anchor-id="validation-reports-a-content-hash-mismatch"><span class="header-section-number">20.9</span> Validation reports a content-hash mismatch</h2>
+<p>The atom sidecar and pocket row disagree. Treat the run as invalid. Do not edit Parquet or LMDB artifacts in place; rebuild from the fingerprinted sources.</p>
+</section>
+</section>
+<section id="scientific-interpretation" class="level1" data-number="21">
+<h1 data-number="21"><span class="header-section-number">21</span> Scientific interpretation</h1>
+<p>This library is a provenance-preserving projection of DrugCLIP combine-set pocket inputs. It does not claim that every neighboring structure file is an independent experimental validation of the pickle geometry, nor that a PDB ID uniquely identifies a binding site or chain.</p>
+<p>The implementation deliberately keeps these claims separate:</p>
+<ul>
+<li>source pickle geometry is preserved as model input;</li>
+<li>local PDB mapping supplies evidence-backed structural annotations;</li>
+<li>SDF/MOL2 parsing supplies ligand identity;</li>
+<li>RCSB supplies optional external structure and UniProt mappings;</li>
+<li>content hashes identify geometry bytes;</li>
+<li>instance IDs identify retained source occurrences;</li>
+<li>quality and mapping statuses expose uncertainty without silently changing the geometry.</li>
+</ul>
+<p>That separation is the central design principle of the second candidate-pocket library.</p>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
