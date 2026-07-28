@@ -28,7 +28,7 @@ def _pdb_atom(serial, name, element, x):
             f"{x:8.3f}{0.0:8.3f}{0.0:8.3f}{1.0:6.2f}{20.0:6.2f}          {element:>2s}\n")
 
 
-def _fixture(root: Path):
+def _fixture(root: Path, *, pdb_id: str = "1abc", include_pocket6a: bool = True):
     drugclip = root / "BioSensIA-DC/external/DrugCLIP"
     for relative in (
         "unimol/tasks/drugclip.py", "unimol/data/lmdb_dataset.py",
@@ -43,14 +43,14 @@ def _fixture(root: Path):
     helper = root / "BioSensIA-DC/lmdb_helpers.py"
     helper.write_text("# helper\n")
 
-    bundle = drugclip / "data/pdb/combine_set/1abc"
+    bundle = drugclip / f"data/pdb/combine_set/{pdb_id}"
     bundle.mkdir(parents=True)
     pocket_coordinates = [[2.0, 0.0, 0.0], [2.2, 0.0, 0.0], [3.0, 0.0, 0.0]]
     with (bundle / "data.pkl").open("wb") as handle:
         pickle.dump({
             "atoms": ["C"], "coordinates": [[[0.0, 0.0, 0.0]]],
             "pocket_atoms": ["C", "H", "N"], "pocket_coordinates": pocket_coordinates,
-            "pocket": "1abc", "label": ("-logKd/Ki", 7.5),
+            "pocket": pdb_id, "label": ("-logKd/Ki", 7.5),
         }, handle, protocol=4)
     sdf = """ligand
 test
@@ -60,12 +60,13 @@ test
 M  END
 $$$$
 """
-    (bundle / "1abc_ligand.sdf").write_text(sdf)
+    (bundle / f"{pdb_id}_ligand.sdf").write_text(sdf)
     pocket = (_pdb_atom(1, "CA", "C", 2.0) + _pdb_atom(2, "HA", "H", 2.2)
               + _pdb_atom(3, "N", "N", 3.0) + "END\n")
-    (bundle / "1abc_pocket.pdb").write_text(pocket)
-    (bundle / "1abc_pocket6A.pdb").write_text(pocket)
-    (bundle / "1abc_protein.pdb").write_text(pocket)
+    (bundle / f"{pdb_id}_pocket.pdb").write_text(pocket)
+    if include_pocket6a:
+        (bundle / f"{pdb_id}_pocket6A.pdb").write_text(pocket)
+    (bundle / f"{pdb_id}_protein.pdb").write_text(pocket)
     return bundle
 
 
@@ -194,6 +195,30 @@ def test_combine_set_end_to_end_preserves_raw_loader_input(tmp_path: Path):
     assert record["pocket_atoms"] == ["C", "H", "N"]
     assert record["pocket_coordinates"].dtype == np.dtype("<f4")
     assert record["pocket_coordinates"].shape == (3, 3)
+
+
+def test_multiple_missing_neighbors_have_distinct_issue_ids(tmp_path: Path):
+    _fixture(tmp_path, pdb_id="1abc", include_pocket6a=False)
+    _fixture(tmp_path, pdb_id="2def", include_pocket6a=False)
+    config = _config(tmp_path)
+
+    run_dir = build_combine_set_library(
+        config, pdb_ids=["1abc", "2def"], progress=False
+    )
+
+    issues = pq.read_table(run_dir / "sidecars/processing_issues.parquet").to_pylist()
+    missing_neighbors = [
+        row for row in issues if row["issue_code"] == "MISSING_COMBINE_SET_NEIGHBOR"
+    ]
+    assert len(missing_neighbors) == 4
+    assert len({row["issue_id"] for row in missing_neighbors}) == 4
+    assert {tuple(sorted(json.loads(row["details_json"]).items())) for row in missing_neighbors} == {
+        (("missing_role", "ligand_mol2"), ("pdb_id", "1abc")),
+        (("missing_role", "pocket6a_pdb"), ("pdb_id", "1abc")),
+        (("missing_role", "ligand_mol2"), ("pdb_id", "2def")),
+        (("missing_role", "pocket6a_pdb"), ("pdb_id", "2def")),
+    }
+    assert validate_run(run_dir, config, progress=False) == []
 
 
 def test_combine_set_builder_refuses_implicit_pickle_trust(tmp_path: Path):

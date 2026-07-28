@@ -88,7 +88,8 @@ def inventory_combine_set(
         for role in ("ligand_sdf", "ligand_mol2", "protein_pdb", "pocket_pdb", "pocket6a_pdb"):
             if role not in files:
                 issues.append(ProcessingIssue("inventory", "MISSING_COMBINE_SET_NEIGHBOR", "warning",
-                                              f"Missing {role} for {record.pdb_id}"))
+                                              f"Missing {role} for {record.pdb_id}",
+                                              details={"pdb_id": record.pdb_id, "missing_role": role}))
         bundles[record.pdb_id] = {"record": record, "files": files}
     return rows, bundles, issues
 

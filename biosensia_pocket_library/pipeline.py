@@ -702,7 +702,7 @@ def _nearby_rows(pocket, ligand, protein, config):
 def _issue_row(issue):
     details = scrub(issue.details)
     return {"issue_id": stable_id("issue", issue.stage, issue.complex_id, issue.pocket_instance_id,
-                                   issue.issue_code, canonical_json_hash(details)),
+                                   issue.source_file_id, issue.issue_code, canonical_json_hash(details)),
         "stage": issue.stage, "complex_id": issue.complex_id, "pocket_instance_id": issue.pocket_instance_id,
         "severity": issue.severity, "issue_code": issue.issue_code, "message": scrub(issue.message),
         "exception_type": issue.exception_type, "source_file_id": issue.source_file_id,

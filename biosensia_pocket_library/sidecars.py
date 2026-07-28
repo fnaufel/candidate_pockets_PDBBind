@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -97,8 +98,18 @@ def validate_sidecars(directory: Path) -> list[str]:
             if invalid_values:
                 errors.append(f"Unknown enum values in {name}.{column}: {sorted(invalid_values)}")
         keys = [tuple(row.get(key) for key in spec.primary_key) for row in rows]
-        if len(keys) != len(set(keys)):
-            errors.append(f"Duplicate primary key: {name}")
+        duplicate_keys = sorted(
+            ((key, count) for key, count in Counter(keys).items() if count > 1),
+            key=lambda item: repr(item[0]),
+        )
+        if duplicate_keys:
+            key, count = duplicate_keys[0]
+            value = key[0] if len(key) == 1 else key
+            group_label = "key" if len(duplicate_keys) == 1 else "keys"
+            errors.append(
+                f"Duplicate primary key: {name}[{','.join(spec.primary_key)}]={value!r} "
+                f"({count} occurrences; {len(duplicate_keys)} duplicated {group_label})"
+            )
         sorted_keys = [tuple(_sort_value(row.get(key)) for key in spec.sort_by) for row in rows]
         if sorted_keys != sorted(sorted_keys):
             errors.append(f"Noncanonical row order: {name}")

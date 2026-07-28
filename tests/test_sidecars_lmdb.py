@@ -64,3 +64,20 @@ def test_additive_v1_sidecars_remain_readable_and_valid(tmp_path: Path):
 
     assert validate_sidecars(tmp_path) == []
     assert all(row == [] for row in [read_sidecar(tmp_path, name) for name in TABLES])
+
+
+def test_duplicate_primary_key_diagnostic_includes_key_and_count(tmp_path: Path):
+    rows = {
+        "source_files": [
+            {"source_file_id": "file:duplicate"},
+            {"source_file_id": "file:duplicate"},
+        ]
+    }
+    write_sidecars(tmp_path, rows, progress=False)
+
+    errors = validate_sidecars(tmp_path)
+
+    assert errors == [
+        "Duplicate primary key: source_files[source_file_id]='file:duplicate' "
+        "(2 occurrences; 1 duplicated key)"
+    ]

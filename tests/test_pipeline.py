@@ -12,7 +12,8 @@ from biosensia_pocket_library.drugclip_contract import verify_drugclip_contract
 from biosensia_pocket_library.finalization import finalize_run
 from biosensia_pocket_library.hashing import atomic_write_bytes, canonical_json_bytes, sha256_bytes
 from biosensia_pocket_library.manifest import PIPELINE_STAGE_ORDER
-from biosensia_pocket_library.pipeline import _bounded_thread_map, build_library
+from biosensia_pocket_library.models import ProcessingIssue
+from biosensia_pocket_library.pipeline import _bounded_thread_map, _issue_row, build_library
 from biosensia_pocket_library.rcsb_workflow import enrich_library_from_cache, plan_rcsb_request
 from biosensia_pocket_library.reporting import generate_reports
 from biosensia_pocket_library.validation import validate_run
@@ -168,6 +169,19 @@ def test_bounded_thread_map_avoids_order_blocking_and_eager_submission():
     assert first in {1, 2}
     assert len(started) <= 3
     assert sorted([first, *results]) == list(range(10))
+
+
+def test_processing_issue_identity_includes_source_file():
+    first = _issue_row(ProcessingIssue(
+        "inventory", "EMPTY_SOURCE_FILE", "error", "Empty first file",
+        source_file_id="file:first",
+    ))
+    second = _issue_row(ProcessingIssue(
+        "inventory", "EMPTY_SOURCE_FILE", "error", "Empty second file",
+        source_file_id="file:second",
+    ))
+
+    assert first["issue_id"] != second["issue_id"]
 
 
 def test_library_contract_does_not_hash_or_depend_on_encoder_checkpoint(tmp_path: Path):
