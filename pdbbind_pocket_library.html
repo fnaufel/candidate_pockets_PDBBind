@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.35">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="BioSensIA">
+<meta name="dcterms.date" content="2026-07-23">
+
+<title>Building the BioSensIA-DC Candidate Pocket Library</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="pdbbind_pocket_library_files/libs/clipboard/clipboard.min.js"></script>
+<script src="pdbbind_pocket_library_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="pdbbind_pocket_library_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="pdbbind_pocket_library_files/libs/quarto-html/popper.min.js"></script>
+<script src="pdbbind_pocket_library_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="pdbbind_pocket_library_files/libs/quarto-html/anchor.min.js"></script>
+<link href="pdbbind_pocket_library_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="pdbbind_pocket_library_files/libs/quarto-html/quarto-syntax-highlighting-46f66b053e56abd73bb6e954d61a315b.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="pdbbind_pocket_library_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="pdbbind_pocket_library_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="pdbbind_pocket_library_files/libs/bootstrap/bootstrap-1b51178daf1222380ca11033671f94b0.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script src="pdbbind_pocket_library_files/libs/quarto-diagram/mermaid.min.js"></script>
+<script src="pdbbind_pocket_library_files/libs/quarto-diagram/mermaid-init.js"></script>
+<link href="pdbbind_pocket_library_files/libs/quarto-diagram/mermaid.css" rel="stylesheet">
+
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+<div class="quarto-alternate-formats"><h2>Other Formats</h2><ul><li><a href="pdbbind_pocket_library.md"><i class="bi bi-file-code"></i>Github (GFM)</a></li></ul></div></div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Building the BioSensIA-DC Candidate Pocket Library</h1>
+<p class="subtitle lead">Implementation, reproducibility contract, and operating guide</p>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>BioSensIA </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">July 23, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="purpose" class="level1">
+<h1>Purpose</h1>
+<p>The <code>biosensia_pocket_library</code> package constructs a DrugCLIP-compatible candidate-pocket library from the <strong>PDBbind 2020 nominal complex set with v2024-reprocessed structures and an index revised on 2025-08-04</strong>.</p>
+<p>The implementation has two products:</p>
+<ol type="1">
+<li>Parquet sidecars containing the authoritative scientific data and provenance.</li>
+<li>A minimal LMDB projection containing only the three fields consumed by the verified BioSensIA-DC/DrugCLIP target-fishing loader.</li>
+</ol>
+<p>PDBbind is licensed data. Raw structures and derived coordinate-bearing artifacts are ignored by Git and must not be redistributed unless the relevant authorization permits it.</p>
+</section>
+<section id="implementation-map" class="level1">
+<h1>Implementation map</h1>
+<div class="cell" data-layout-align="default">
+<div class="cell-output-display">
+<div>
+<p></p><figure class="figure"><p></p>
+<div>
+<pre class="mermaid mermaid-js">flowchart TD
+  A[PDBbind index&lt;br /&gt;and four local files] --&gt; B[Read-only identity bootstrap]
+  D[Linked&lt;br /&gt;BioSensIA-DC / DrugCLIP] --&gt; B
+  B --&gt; C[Local ligand&lt;br /&gt;and protein parsing]
+  C --&gt; E[Contact and&lt;br /&gt;residue-expanded views]
+  E --&gt; F[Geometry hashes&lt;br /&gt;and quality]
+  E --&gt; G[PDBbind&lt;br /&gt;pocket comparison]
+  H[RCSB content-&lt;br /&gt;-addressed cache] --&gt; I[Mapping and&lt;br /&gt;citation enrichment]
+  F --&gt; J[Explicit-schema&lt;br /&gt;Parquet sidecars]
+  G --&gt; J
+  I --&gt; J
+  J --&gt; K[Dense-key protocol-4 LMDB]
+  K --&gt; L[Validation and reports]
+</pre>
+</div>
+<p></p></figure><p></p>
+</div>
+</div>
+</div>
+<p>The geometry branch uses only local PDBbind coordinates, configured geometry policies, and the verified DrugCLIP token contract. RCSB and citation results are downstream enrichment and cannot alter pocket membership, geometry quality, hashes, identifiers, or LMDB eligibility.</p>
+<p>The principal modules are:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Module</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>config.py</code></td>
+<td>Strict TOML loading, path normalization, semantic and operational hashes</td>
+</tr>
+<tr class="even">
+<td><code>index_parser.py</code></td>
+<td>Index parsing, binding normalization, duplicate rules</td>
+</tr>
+<tr class="odd">
+<td><code>source_inventory.py</code></td>
+<td>Deterministic year-directory discovery and source checksums</td>
+</tr>
+<tr class="even">
+<td><code>drugclip_compatibility.py</code></td>
+<td>Versioned task/loader/helper/dictionary library contract; linked revision as provenance</td>
+</tr>
+<tr class="odd">
+<td><code>ligand_parser.py</code></td>
+<td>Staged SDF/MOL2 RDKit parsing, chemistry, components, geometry hashes</td>
+</tr>
+<tr class="even">
+<td><code>protein_parser.py</code></td>
+<td><a href="https://gemmi.readthedocs.io/en/latest/">Gemmi</a> validation, fixed-column atom identity, model and altloc policy</td>
+</tr>
+<tr class="odd">
+<td><code>pocket_extractor.py</code></td>
+<td>Contact/residue views, deterministic order/crop, content/derivation hashes</td>
+</tr>
+<tr class="even">
+<td><code>pocket_comparison.py</code></td>
+<td>Like-for-like uncropped comparison with one-to-one matching</td>
+</tr>
+<tr class="odd">
+<td><code>quality.py</code></td>
+<td>Computable A/B/C geometry rules independent of enrichment quality</td>
+</tr>
+<tr class="even">
+<td><code>rcsb.py</code></td>
+<td>Content-addressed mmCIF cache, direct chain candidates, mmCIF citations</td>
+</tr>
+<tr class="odd">
+<td><code>schemas.py</code>, <code>sidecars.py</code></td>
+<td>Exact Arrow schemas, canonical row order, atomic writes, relationships</td>
+</tr>
+<tr class="even">
+<td><code>lmdb_export.py</code></td>
+<td>Sidecar-only filtered LMDB export and logical/physical checksums</td>
+</tr>
+<tr class="odd">
+<td><code>validation.py</code>, <code>reporting.py</code></td>
+<td>Cross-artifact validation and deterministic summaries</td>
+</tr>
+<tr class="even">
+<td><code>pipeline.py</code>, <code>cli.py</code></td>
+<td>Bootstrap identity, stage coordination, progress, command interface</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="prerequisites" class="level1">
+<h1>Prerequisites</h1>
+<section id="python-environment" class="level2">
+<h2 class="anchored" data-anchor-id="python-environment">Python environment</h2>
+<p>The supported interpreter range is Python 3.11.x. Install the locked environment from the repository root:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> sync</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>New implementation dependencies (relative to BioSensia-DC) are bounded in <code>pyproject.toml</code>: Gemmi parses PDB/mmCIF, HTTPX performs cached RCSB requests, Tenacity supplies bounded retry behavior, and SciPy provides deterministic minimum-cost one-to-one fallback atom assignment. Existing RDKit, NumPy, PyArrow, LMDB, tqdm, and pytest dependencies are reused.</p>
+</section>
+<section id="expected-links-and-data-layout" class="level2">
+<h2 class="anchored" data-anchor-id="expected-links-and-data-layout">Expected links and data layout</h2>
+<p>The default configuration expects:</p>
+<pre class="text"><code>BioSensIA-DC -&gt; /path/to/BioSensIA-DC
+data/raw/index/
+data/raw/P-L/
+├── 1981-2000/
+├── 2001-2010/
+└── 2011-2019/</code></pre>
+<p><code>BioSensIA-DC/external/DrugCLIP</code> must contain the active <code>dict_pkt.txt</code>, task, and data wrappers. Furthermore, <code>BioSensIA-DC/lmdb_helpers.py</code> is part of the fingerprinted library contract. A configured <code>checkpoint_best.pt</code> is needed only for a separate encoder smoke test or embedding generation; library construction neither reads nor hashes it. The configured PDBbind root may itself be a deliberate symbolic link; arbitrary links encountered elsewhere are not searched.</p>
+<p>Run the DrugCLIP contract preflight before a long build:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library check-drugclip-contract <span class="dt">\</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/pdbbind-pocket-library.toml</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>This command performs <strong>one part of the build bootstrap</strong>, but not the entire bootstrap. It checks the consumer side of the serialized-library interface: DrugCLIP task and loader code, helper code, and pocket dictionary. It reports the BioSensIA-DC Git revision and dirty state as provenance, individual relevant-file hashes, the aggregate loader hash, supported dictionary tokens, and the versioned library-contract fingerprint. The revision and dirty state do not enter that fingerprint because unrelated checkout changes cannot affect the library when the relevant files are unchanged. The configured checkpoint path is reported as <code>not_evaluated</code>; the checkpoint is not read or hashed. The command is safe to run independently because it does not create a run directory.</p>
+<p>The complete bootstrap happens automatically at the beginning of <code>build</code> or <code>build-sidecars</code>. In addition to repeating the DrugCLIP contract check, it parses and verifies the PDBbind index, validates the mixed-version dataset identity, applies the requested complex selection, inventories and hashes the selected local source files, and computes every fingerprint needed for the run ID. This phase remains read-only until all identities are known. Only then does the program create the uniquely named run directory. Therefore, the command above is best understood as an inexpensive, focused <strong>DrugCLIP contract preflight</strong> for the broader automatic bootstrap.</p>
+</section>
+</section>
+<section id="configuration-and-run-identity" class="level1">
+<h1>Configuration and run identity</h1>
+<p>Copy and edit <code>config/pdbbind-pocket-library.toml</code>. Unknown sections and keys are errors. Configuration precedence is defaults, TOML, then CLI overrides.</p>
+<p>Here, <strong>scientific settings</strong> means any setting capable of changing the meaning, membership, coordinates, classification, or serialized contents of the candidate library. Examples include the ligand–protein distance cutoff; model, alternate-location, hydrogen, and element policies; the maximum exported pocket size; ligand parsing and component policies; the contents of the quality-rule file; the permitted geometry tiers; and whether a source of enrichment is enabled. Changing one of these settings can change which atoms or pockets are retained, the values written to sidecars, or the bytes written to LMDB. These content-affecting settings contribute to <code>semantic_config_hash</code>.</p>
+<p>By contrast, <strong>operational settings</strong> change how the same scientific result is produced, not what that result means. Examples are <code>workers</code>, <code>fail_fast</code>, progress display, network timeout/retry/rate limits, cache locations, and LMDB allocation headroom. They contribute to <code>operational_config_hash</code>. Source paths are also operational because the actual source contents are fingerprinted separately. Keeping the two hashes separate lets two runs be recognized as scientifically equivalent even if, for example, one used eight workers and the other used one. Paths under the project are serialized in project-relative POSIX form. Secret values are never read into or written from this configuration; only configured environment-variable names are retained.</p>
+<p>Before creating a run directory, the bootstrap computes:</p>
+<ul>
+<li><code>semantic_config_hash</code> from content-affecting configuration;</li>
+<li><code>source_fingerprint</code> from the distribution identity and selected local source IDs/checksums;</li>
+<li><code>selection_fingerprint</code> from sorted PDB IDs and canonical filters;</li>
+<li><code>drugclip_library_contract_fingerprint</code> from a contract-version tag and the task/loader/helper/dictionary hashes. The legacy <code>drugclip_contract_fingerprint</code> name remains as an alias for compatible readers.</li>
+</ul>
+<p>The library and encoder contracts are deliberately separate. Changing only <code>checkpoint_best.pt</code>, its configured path, or an unrelated file elsewhere in BioSensIA-DC does not change a new candidate-library semantic hash, operational hash, or run ID. The path remains visible in resolved configuration for a later encoder command. An encoder or embedding artifact instead records the exact checkpoint hash together with the input LMDB logical checksum.</p>
+<p>The directory name makes those identities visible:</p>
+<pre class="text"><code>pb20-v24p-20250804-v1-&lt;semantic8&gt;-&lt;source8&gt;-&lt;selection8&gt;-&lt;contract8&gt;</code></pre>
+<p><code>--resume</code> accepts only a run with identical full fingerprints. A completed compatible run is returned without rebuilding. <code>--overwrite-run</code> first moves the exact existing run to a timestamped sibling backup. The implementation never treats <code>output_root</code> itself as an overwrite target.</p>
+<p>Directories created under the former checkpoint-coupled contract remain supported. Their top-level <code>drugclip_contract_fingerprint</code>, run-directory name, and any recorded <code>checkpoint_sha256</code> are treated as immutable legacy provenance. <code>validate</code>, <code>report</code>, <code>export-lmdb</code>, and the loader compatibility script accept the older manifest shape without renaming the directory, recomputing its identity, or requiring access to the old checkpoint. New runs use the versioned checkpoint-independent field; existing directories are not migrated in place.</p>
+</section>
+<section id="geometry-construction" class="level1">
+<h1>Geometry construction</h1>
+<section id="index-and-binding-measurements" class="level2">
+<h2 class="anchored" data-anchor-id="index-and-binding-measurements">Index and binding measurements</h2>
+<p>The protein–ligand index parser ignores comments and blanks, verifies its declared count, and collapses only equivalent duplicate PDB IDs. Conflicting duplicates are fatal. Every whitespace-delimited token after <code>//</code> whose basename ends in <code>.pdf</code> is removed before labels, comments, errors, reports, or logs can persist it.</p>
+<p>Measurements such as <code>Kd=49uM</code>, <code>Ki&lt;=17nM</code>, <code>IC50≈5 nM</code>, and <code>Ka=1.2e6M-1</code> retain their raw token. Concentrations are normalized to molar and transformed to <code>-log10</code>; inequalities reverse on that scale. <code>Ka</code> is normalized separately to inverse molar and transformed with <code>log10</code>, without relation reversal.</p>
+</section>
+<section id="ligand-parsing" class="level2">
+<h2 class="anchored" data-anchor-id="ligand-parsing">Ligand parsing</h2>
+<p>RDKit attempts the configured primary SDF file, then MOL2 fallback. It rejects missing/nonfinite 3D coordinates and unresolved atomic numbers, records chemical identifiers and component membership, and compares usable SDF/MOL2 atom order and coordinates. A content hash describes atomic numbers, components, and coordinates. A distinct derivation hash describes source checksum and parsing policy.</p>
+</section>
+<section id="protein-parsing" class="level2">
+<h2 class="anchored" data-anchor-id="protein-parsing">Protein parsing</h2>
+<p>Gemmi first validates that the PDB structure is readable. A fixed-column pass retains the exact PDBbind atom order and identifiers. Version 1 selects the first model.</p>
+<p>A PDB file can contain two or more experimentally observed positions for the same atom. These alternatives are distinguished by the PDB <strong>alternate-location indicator</strong>, commonly shortened to <strong>altloc</strong>; for example, altlocs <code>A</code> and <code>B</code> may describe two modeled positions of one side chain. Each atom record also has an <strong>occupancy</strong>, normally a number from 0 to 1 that estimates the fraction of the modeled structure represented at that position. Thus, occupancies of 0.70 and 0.30 suggest that the first position is the more prevalent of the two. Occupancy is not an atom-quality score; in this context it is used as an estimate of the relative population of alternate positions.</p>
+<p>Feeding every alternate position to the model would incorrectly duplicate atoms, while choosing whichever record appears first would make the result depend on file ordering. The pipeline therefore groups records that describe the same physical atom and selects exactly one position deterministically. It first chooses the record with the highest occupancy. If two records have the same occupancy, it prefers a blank altloc, which means that the record was not assigned an alternate-position label. If a further tie remains, it prefers altloc <code>A</code>. Here, <code>A</code> is simply the one-character label conventionally assigned by a structure depositor to the first alternate conformation; it is not an element symbol, an amino-acid code, or evidence that the position is scientifically better. Remaining ties are resolved by the lexically smallest altloc label (<code>B</code> before <code>C</code>, for example), then by original source order. Discarded alternatives remain auditable through the <code>ALTERNATE_LOCATIONS_DISCARDED</code> issue code.</p>
+<p>Canonical amino-acid <code>ATOM</code> records and allowlisted modified-polymer <code>HETATM</code> records are protein; waters, metals, cofactors, and other components remain excluded diagnostics.</p>
+</section>
+<section id="comparable-views-and-export" class="level2">
+<h2 class="anchored" data-anchor-id="comparable-views-and-export">Comparable views and export</h2>
+<p>Three uncropped representations are retained:</p>
+<ul>
+<li><code>contact_atom</code>: protein heavy atoms individually at or below 6 Å from any pocket-defining ligand heavy atom;</li>
+<li><code>contact_residue</code>: residues containing a contact atom;</li>
+<li><code>residue_expanded_atom</code>: every locally classified protein heavy atom in those residues.</li>
+</ul>
+<p>Extraction schema version 1 exports <strong><code>contact_atom</code></strong>. Export order is minimum ligand distance, chain, residue number, insertion code, residue name, atom name, alternate location, then original source order. The maximum is controlled by <code>pocket.max_pocket_atoms</code> in <code>config/pdbbind-pocket-library.toml</code>; its default value is 256 because that is the default DrugCLIP pocket limit. If the contact view contains more atoms than the configured maximum, the pipeline retains the nearest atoms in the deterministic order just described. The same maximum must be compatible with the active DrugCLIP configuration, and changing it changes the semantic configuration hash. Performing this deterministic crop during construction ensures that DrugCLIP’s later random cropping wrapper has nothing left to remove, so repeated inference sees the same pocket atoms.</p>
+<p>The pocket content hash covers only the exact ordered element tokens and little-endian float32 coordinates serialized to LMDB. The derivation hash also covers the distribution, protein source checksum, ligand derivation, policies, ordered atom identities, float64 source coordinates/distances, and content hash. A pocket identifier is:</p>
+<pre class="text"><code>&lt;complex_id&gt;:&lt;first-16-hex-of-pocket-derivation-hash&gt;</code></pre>
+</section>
+<section id="pdbbind-pocket-comparison" class="level2">
+<h2 class="anchored" data-anchor-id="pdbbind-pocket-comparison">PDBbind pocket comparison</h2>
+<p>The pocket file provided by PDBbind is parsed with the same policies. Its contact subset is compared only with the re-extracted contact view; all locally classified heavy atoms in the file are compared with the residue-expanded view. Neither primary view is cropped. Exact canonical identities are matched first, followed by deterministic one-to-one element/coordinate matches under tolerance. The residue-expanded result determines the pocket-level comparison quality.</p>
+</section>
+</section>
+<section id="quality-model" class="level1">
+<h1>Quality model</h1>
+<p>The quality model separates two ideas that are easy to conflate: a <strong>tier</strong> summarizes the suitability of locally constructed geometry, whereas a <strong>status</strong> records what happened in one particular processing or enrichment dimension. A lower-confidence citation, for example, does not make otherwise sound coordinates geometrically worse. Similarly, disagreement with the PDBbind-provided pocket is useful audit information, but it does not silently rewrite the locally extracted pocket. Keeping the dimensions separate prevents missing network metadata or uncertain bibliography from excluding valid geometry.</p>
+<p>Geometry tiers are assigned from explicit, versioned rules rather than subjective inspection:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Geometry value</th>
+<th>Meaning</th>
+<th>Default LMDB treatment</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>A</code></td>
+<td>Construction succeeded and no issue mapped to tier B or C was found. This is the cleanest locally computable geometry class.</td>
+<td>Included</td>
+</tr>
+<tr class="even">
+<td><code>B</code></td>
+<td>Construction succeeded, but at least one controlled caveat occurred, such as deterministic cropping, MOL2 fallback, SDF/MOL2 disagreement, inclusion of an allowed modified residue, or an explicit element mapping.</td>
+<td>Included</td>
+</tr>
+<tr class="odd">
+<td><code>C</code></td>
+<td>Construction succeeded and remains available for analysis, but at least one issue calls for greater caution, such as a probable covalent contact, a very small pocket, an excluded component bridging the ligand and protein, unsupported atoms being excluded, separated ligand components, or a local missing-atom record.</td>
+<td>Excluded by default</td>
+</tr>
+<tr class="even">
+<td><code>rejected</code></td>
+<td>A required geometry step failed, so there is no usable pocket to export. Examples include failure of both ligand formats or failure to parse the protein.</td>
+<td>Never included</td>
+</tr>
+<tr class="odd">
+<td><code>not_processed</code></td>
+<td>No geometry decision was reached, usually because an earlier required input or stage prevented processing.</td>
+<td>Never included</td>
+</tr>
+</tbody>
+</table>
+<p>If several issue codes apply, the most cautionary applicable tier wins: C takes precedence over B, and B takes precedence over A. The mapping from issue code to effect is declared in <code>config/pocket-quality-rules.toml</code>. Unknown issue codes are validation errors, which prevents a new warning from accidentally being treated as harmless.</p>
+<p>The related <code>processing_status</code> describes execution outcome rather than quality rank: <code>accepted</code> means usable geometry with no recorded warnings, <code>accepted_with_warnings</code> means usable geometry with one or more warnings, <code>rejected</code> means construction failed, and <code>not_processed</code> means the decision was never reached. Thus, a tier-B or tier-C pocket can still have an accepted processing status; the tier explains the warning’s scientific consequence.</p>
+<p>Four dimensions stay independent:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Dimension</th>
+<th>Examples</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Geometry</td>
+<td><code>A</code>, <code>B</code>, <code>C</code>, <code>rejected</code>, <code>not_processed</code></td>
+</tr>
+<tr class="even">
+<td>Pocket comparison</td>
+<td><code>concordant</code>, <code>moderate_difference</code>, <code>severe_difference</code>, <code>unavailable</code></td>
+</tr>
+<tr class="odd">
+<td>Structure mapping</td>
+<td><code>exact</code>, <code>aligned</code>, <code>ambiguous</code>, <code>unresolved</code>, <code>unavailable</code></td>
+</tr>
+<tr class="even">
+<td>Bibliography</td>
+<td><code>exact</code>, <code>probable</code>, <code>unresolved</code>, <code>unavailable</code>, <code>not_attempted</code></td>
+</tr>
+</tbody>
+</table>
+<p>Only the geometry tier controls the default LMDB. <code>config/pocket-quality-rules.toml</code> maps every recognized geometry issue to a tier. Tier C checks are computed, including covalent-radius proximity, excluded-component bridging, very small pockets, excluded unsupported atoms, and spatially separated ligand components. Unknown geometry issue codes fail validation rather than being silently classified.</p>
+<p>The geometry tiers admitted to the final default LMDB are configurable with <code>lmdb.include_geometry_quality_tiers</code> in <code>config/pdbbind-pocket-library.toml</code>. The shipped configuration is <code>["A", "B"]</code>. Setting it to <code>["A"]</code> creates a more conservative default library, while <code>["A", "B", "C"]</code> includes every usable tier; the choice is content-affecting and therefore changes the semantic configuration hash and run identity. Rejected and unprocessed entries cannot be enabled. For an already completed sidecar build, <code>export-lmdb</code> also provides named profiles: <code>tier-a</code> selects A, <code>tiers-ab</code> selects A and B, and <code>all-usable</code> selects A, B, and C. This allows sensitivity analyses without reconstructing geometry, while the profile metadata records the exact filter used.</p>
+<p>Bibliographic candidate links and final adjudications are separate tables. An mmCIF primary citation produces only probable structural evidence, never an exact affinity assertion. Auditable CSV or Parquet overrides can be supplied at <code>bibliography.manual_overrides_path</code>; conflicts and invalid measurement/citation references become fatal override issues without changing source-derived citation rows.</p>
+</section>
+<section id="running-the-pipeline" class="level1">
+<h1>Running the pipeline</h1>
+<section id="development-build" class="level2">
+<h2 class="anchored" data-anchor-id="development-build">Development build</h2>
+<p>Use an offline, deterministic one-entry build first:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library build <span class="dt">\</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/pdbbind-pocket-library.toml <span class="dt">\</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--pdb-id</span> 2tpi <span class="dt">\</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">--offline</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Other reproducible selectors are <code>--pdb-id</code> (repeatable), <code>--pdb-ids-file</code>, <code>--year-from</code>, <code>--year-to</code>, and <code>--limit</code>. The limit is applied after sorting by PDB ID. Operations expected to take more than seconds show tqdm progress bars; <code>--no-progress</code> disables them for logs and automation.</p>
+</section>
+<section id="full-build" class="level2">
+<h2 class="anchored" data-anchor-id="full-build">Full build</h2>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library build <span class="dt">\</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--config</span> config/pdbbind-pocket-library.toml <span class="dt">\</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--workers</span> 8</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Complex-level ligand/protein parsing and extraction use a bounded worker pool; workers return isolated structured rows to a deterministic single-writer coordinator. <code>workers</code> is captured as operational identity, and final canonical sorting makes output independent of completion order. RCSB requests are rate-limited, retried, validated, and stored by SHA-256. Use <code>--offline</code> to consume only existing cache references. <code>--offline --refresh-cache</code> is rejected.</p>
+</section>
+<section id="individual-commands" class="level2">
+<h2 class="anchored" data-anchor-id="individual-commands">Individual commands</h2>
+<section id="parse-and-check-the-index" class="level3">
+<h3 class="anchored" data-anchor-id="parse-and-check-the-index">Parse and check the index</h3>
+<p><code>parse-index</code> is a fast, read-only dataset/count preflight. It parses <code>INDEX_general_PL.2020R1.lst</code>, strips forbidden PDF-looking tokens from post-<code>//</code> text, normalizes binding measurements, checks duplicate PDB IDs, and reports the declared, physical-line, unique-record, and selected counts as JSON. Selection options such as <code>--pdb-id</code>, year bounds, and <code>--limit</code> can be used to check the exact subset intended for a later build. It does not inspect complex coordinate files, verify the DrugCLIP contract, or create a run directory, so it is narrower than the full bootstrap.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library parse-index <span class="at">--config</span> config/pdbbind-pocket-library.toml</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="inventory-selected-local-sources" class="level3">
+<h3 class="anchored" data-anchor-id="inventory-selected-local-sources">Inventory selected local sources</h3>
+<p><code>inventory</code> first parses and selects index records, then finds the matching complex directories beneath the configured PDBbind root. For each selected complex it checks the expected protein, ligand SDF, ligand MOL2, and PDBbind pocket files; records missing, empty, extra, duplicate, or case-mismatched files; and hashes discovered sources. Its JSON output summarizes the number selected, found, and problematic. This is also read-only and creates no run directory, making it useful for detecting an incomplete local copy before an expensive build.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library inventory <span class="at">--config</span> config/pdbbind-pocket-library.toml <span class="at">--limit</span> 100</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="populate-the-rcsb-cache" class="level3">
+<h3 class="anchored" data-anchor-id="populate-the-rcsb-cache">Populate the RCSB cache</h3>
+<p><code>download-rcsb</code> fetches mmCIF files for the selected PDB IDs and places validated responses in the content-addressed RCSB cache. Downloads are rate-limited, retried, checksum-verified, and shown with progress. Existing valid cache entries are reused unless <code>--refresh-cache</code> is given. In offline mode the command performs no network requests and can use only cached references. This command populates enrichment inputs; it neither extracts pockets nor changes any geometry decision.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library download-rcsb <span class="at">--config</span> config/pdbbind-pocket-library.toml <span class="at">--limit</span> 100</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="build-authoritative-sidecars-without-lmdb" class="level3">
+<h3 class="anchored" data-anchor-id="build-authoritative-sidecars-without-lmdb">Build authoritative sidecars without LMDB</h3>
+<p><code>build-sidecars</code> runs the full identity bootstrap and scientific construction pipeline: source inventory, ligand and protein parsing, pocket extraction, quality classification, PDBbind-pocket comparison, optional RCSB and citation enrichment, normalized Parquet writing, validation, and report generation. It deliberately stops before LMDB export. The resulting run has status <code>sidecars_complete</code> and is useful when the authoritative relational data should be reviewed before choosing an LMDB inclusion profile. Because run identity is computed in the same way as for <code>build</code>, these sidecars retain the complete provenance contract.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library build-sidecars <span class="at">--config</span> config/pdbbind-pocket-library.toml <span class="at">--limit</span> 100</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="export-an-lmdb-profile-from-completed-sidecars" class="level3">
+<h3 class="anchored" data-anchor-id="export-an-lmdb-profile-from-completed-sidecars">Export an LMDB profile from completed sidecars</h3>
+<p><code>export-lmdb</code> reads an existing run’s Parquet sidecars as its sole scientific input, rechecks the active DrugCLIP library contract without reading a checkpoint, filters pockets according to the requested profile, and writes a deterministic LMDB plus profile metadata. It also replaces that profile’s rows in <code>lmdb_records.parquet</code> and updates the manifest’s profile and artifact inventories. Omitting <code>--profile</code> now selects the required profile named <code>default</code>; the example explicitly exports only tier-A geometry. Other choices are <code>tiers-ab</code> and <code>all-usable</code>; use <code>--overwrite</code> when intentionally replacing an existing file for the same profile. Explicit legacy run directories remain valid inputs. Exporting an optional profile does not mark the entire run complete.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library export-lmdb <span class="dt">\</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/pdbbind_2020_v2024p_20250804/<span class="op">&lt;</span>run-id<span class="op">&gt;</span> <span class="dt">\</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--profile</span> tier-a</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="finalize-or-recover-a-run-from-completed-sidecars" class="level3">
+<h3 class="anchored" data-anchor-id="finalize-or-recover-a-run-from-completed-sidecars">Finalize or recover a run from completed sidecars</h3>
+<p>Use <code>finalize</code> when a build completed extraction and sidecar writing but failed during LMDB export, validation, or reporting. It does not repeat source inventory, geometry extraction, RCSB downloads, or enrichment. It removes only abandoned hidden LMDB temporary files, recreates the required <code>default</code> LMDB, updates its membership sidecar, repairs legacy duplicate affinity-reference candidates by aggregating their evidence, validates the complete run, regenerates reports, records final counts and stage markers, refreshes the artifact inventory, and sets a completion timestamp and <code>status: complete</code> atomically. Only <code>lmdb_records.parquet</code> and <code>affinity_reference_links.parquet</code> are rewritten; large geometry sidecars are checksummed but not recompressed.</p>
+<p>The command preserves the original run ID, source/selection/configuration fingerprints, legacy DrugCLIP identity, build Git commit, and build code fingerprint. It verifies that the currently relevant task, loader, helper, and dictionary hashes still match the run before publishing. The newer code used for recovery is recorded separately in <code>manifest.finalization</code>. This is important for legacy directories: recovery adds publication provenance without pretending that new code performed the original extraction.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library finalize <span class="dt">\</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/pdbbind_2020_v2024p_20250804/<span class="op">&lt;</span>run-id<span class="op">&gt;</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="revalidate-a-completed-run" class="level3">
+<h3 class="anchored" data-anchor-id="revalidate-a-completed-run">Revalidate a completed run</h3>
+<p><code>validate</code> is a read-only integrity check over an existing run. It checks exact sidecar schemas, primary and foreign keys, enumerated statuses, forbidden PDF-looking text, issue-code coverage, one-adjudication-per-measurement rules, pocket content-hash regeneration, sidecar joins, manifest/run-directory consistency, and every recorded LMDB profile, including dense keys and record contents. It prints <code>Validation passed</code> and exits with status 0 on success; otherwise it prints the detected errors and exits nonzero, which makes it suitable for CI or promotion gates.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library validate <span class="at">--run-dir</span> data/processed/pdbbind_2020_v2024p_20250804/<span class="op">&lt;</span>run-id<span class="op">&gt;</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="regenerate-summary-reports" class="level3">
+<h3 class="anchored" data-anchor-id="regenerate-summary-reports">Regenerate summary reports</h3>
+<p><code>report</code> recomputes the human- and machine-readable summaries from the existing sidecars and manifest. These include build counts, quality and failure distributions, pocket-size and comparison distributions, mapping status, reference status, and LMDB-profile counts. Unlike <code>validate</code>, this command writes files under <code>reports/</code>; it then refreshes the manifest’s output-file inventory and checksums. It does not rerun geometry extraction or RCSB enrichment.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run biosensia-pocket-library report <span class="at">--run-dir</span> data/processed/pdbbind_2020_v2024p_20250804/<span class="op">&lt;</span>run-id<span class="op">&gt;</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The Python API is equally direct:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> biosensia_pocket_library <span class="im">import</span> build_library, load_config</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> load_config(<span class="st">"config/pdbbind-pocket-library.toml"</span>)</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>run_dir <span class="op">=</span> build_library(config, pdb_ids<span class="op">=</span>[<span class="st">"2tpi"</span>], progress<span class="op">=</span><span class="va">True</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+</section>
+</section>
+<section id="output-contract" class="level1">
+<h1>Output contract</h1>
+<p>Each run contains:</p>
+<ul>
+<li><p><strong><code>manifest.json</code></strong></p>
+<p>This is the run’s top-level provenance and integrity record. It identifies the pipeline and repository revision, dirty-code fingerprint, Python and dependency versions, dataset identity, selection, semantic and operational configuration hashes, source fingerprint, DrugCLIP contract fingerprint, stage statuses, result counts, LMDB profiles, integration-test results, and checksums for files inside the declared checksum boundary. The manifest is updated atomically as stages complete. It is excluded from its own checksum inventory to avoid an impossible self-referential hash.</p></li>
+<li><p><strong><code>config.resolved.toml</code></strong></p>
+<p>This is the complete effective configuration after defaults, the user TOML, and CLI overrides have been combined and paths normalized. It lets a reader see the actual settings used rather than reconstructing them from several sources. It records environment-variable <em>names</em> relevant to optional services, but never copies secret values into the run.</p></li>
+<li><p><strong><code>checkpoints/&lt;ordinal&gt;_&lt;stage&gt;/complete.json</code></strong></p>
+<p>Each stage directory contains a small completion marker naming the stage and its version, the run’s identity fingerprints, relevant input hashes, and hashes of that stage’s material outputs. Directory names begin with a zero-padded three-digit pipeline ordinal—<code>000_bootstrap-identity</code>, <code>001_check-drugclip-contract</code>, through <code>014_report</code>—so a lexical directory listing shows execution order. The manifest continues using stable unnumbered stage keys. Existing runs with legacy unnumbered checkpoint directories remain valid and are not renamed automatically. These markers distinguish a genuinely completed stage from a partially written directory and support safe resume checks. They are control metadata, so they are not themselves part of the final artifact checksum boundary.</p></li>
+<li><p><strong><code>sidecars/*.parquet</code></strong></p>
+<p>These normalized Parquet tables are the authoritative scientific and provenance representation of the library. They cover source files, index occurrences and measurements, complexes, ligands and components, pockets and atoms, comparisons and differences, chain and UniProt mappings, ligand mapping candidates, citations and authors, affinity-reference decisions, nearby excluded components, processing issues, and LMDB record membership. Every table is written with an explicit Arrow schema and semantic version even when it has zero rows. The LMDB is a projection of these tables, not an independent source of truth.</p></li>
+<li><p><strong><code>lmdb/candidate_pockets.lmdb</code></strong></p>
+<p>This is the default DrugCLIP-compatible LMDB created by <code>build</code>, stored as a single file rather than an LMDB subdirectory. Its dense ASCII keys (<code>0</code>, <code>1</code>, …) map to protocol-4 pickle records containing exactly the pocket identifier, element-token sequence, and little-endian float32 coordinate matrix. Other named export profiles use sibling filenames such as <code>candidate_pockets_tier_a.lmdb</code>. A <code>build-sidecars</code> run will not contain LMDB files until <code>export-lmdb</code> is invoked.</p></li>
+<li><p><strong><code>lmdb/candidate_pockets.lmdb.profile.json</code></strong></p>
+<p>This companion file describes how the default LMDB was derived: profile name, tier filter, schema and pickle versions, record count, versioned DrugCLIP library-contract identity, physical file SHA-256, and the logical digest over framed key/value bytes. It deliberately contains no checkpoint hash because checkpoint choice cannot alter LMDB bytes. Each named LMDB profile has its own adjacent <code>.profile.json</code>. Consumers should namespace or invalidate embedding caches using the logical digest, because a familiar filename alone does not prove identical contents.</p></li>
+<li><p><strong><code>reports/*</code></strong></p>
+<p>This directory contains deterministic summaries intended for inspection and downstream quality control. It includes JSON and Markdown build summaries plus Parquet count/distribution tables for geometry quality, failures, pocket sizes, pocket comparison, structure mapping, UniProt mapping, and reference adjudication. The linked DrugCLIP compatibility script also writes <code>drugclip_loader_integration.json</code> here when that separate test succeeds.</p></li>
+<li><p><strong><code>logs/pipeline.log</code></strong></p>
+<p>This is the human-readable chronological execution log. It is useful for following individual complex outcomes and diagnosing infrastructure failures. Logs are intentionally outside the artifact checksum boundary because timestamps and operational messages may vary without changing scientific results.</p></li>
+<li><p><strong><code>logs/events.jsonl</code></strong></p>
+<p>This is the structured counterpart to <code>pipeline.log</code>: one scrubbed JSON object per event, suitable for programmatic filtering and aggregation. It carries stage, severity, issue code, complex context, and message fields without retaining forbidden PDF-looking tokens. Like the text log, it is operational evidence rather than a checksummed scientific artifact.</p></li>
+</ul>
+<p>All normalized sidecar tables are emitted with explicit Arrow schemas even when empty. Parquet metadata records schema name and semantic version. Writers reject unknown columns, sort by the schema’s canonical keys, and write through a temporary file before atomic replacement. <code>processing_issues.parquet</code> uses deterministic issue IDs; its timestamps are volatile and excluded from logical table checksums.</p>
+<p>The default LMDB is opened with <code>subdir=False</code>, has dense ASCII keys <code>b"0"</code>, <code>b"1"</code>, and so on, and contains protocol-4 pickles with exactly:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>{</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">"pocket"</span>: pocket_instance_id,</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"pocket_atoms"</span>: [<span class="st">"C"</span>, <span class="st">"N"</span>, <span class="st">"O"</span>, ...],</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"pocket_coordinates"</span>: numpy_array_float32_little_endian_N_by_3,</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The writer validates finite contiguous arrays, no hydrogens, unchanged DrugCLIP token transformation, dictionary membership, the atom cap, record order, and dense keys before publishing. Profile metadata records physical file SHA-256 and an authoritative logical digest over length-framed key/value byte pairs. BioSensIA embedding caches must be invalidated or namespaced by this logical digest whenever an LMDB changes.</p>
+<p>The manifest checksum boundary includes resolved configuration, final Parquet sidecars other than the inventory’s self-reference, reports, LMDB files, and profile JSON. It excludes the manifest itself, logs, checkpoints, temporary files, lock files, and inventory self-checksum.</p>
+</section>
+<section id="validation-and-tests" class="level1">
+<h1>Validation and tests</h1>
+<p>Run the complete test suite:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run pytest <span class="at">-q</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The suite covers comment redaction, concentration and association-constant normalization, duplicate index identity, the deterministic alternate-conformer selection policy explained under <a href="#protein-parsing">Protein parsing</a>, inclusive cutoff behavior, contact versus residue-expanded views, deterministic cropping and hashing, explicit empty-table schemas, LMDB round trips, a synthetic end-to-end build, and a local 2TPI geometry check when licensed data are present.</p>
+<section id="linked-drugclip-loader-compatibility-test" class="level2">
+<h2 class="anchored" data-anchor-id="linked-drugclip-loader-compatibility-test">Linked DrugCLIP loader compatibility test</h2>
+<p>The pytest suite verifies the builder in its own lightweight environment, but the strongest interface check must use the actual loader classes in the linked BioSensIA-DC checkout. Those classes depend on PyTorch and compiled Uni-Core components that are intentionally not duplicated in this project’s environment. Run the following command with the BioSensIA-DC virtual environment after a default LMDB has been built:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="ex">BioSensIA-DC/.venv/bin/python</span> scripts/verify_drugclip_loader.py <span class="dt">\</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--run-dir</span> data/processed/pdbbind_2020_v2024p_20250804/<span class="op">&lt;</span>run-id<span class="op">&gt;</span> <span class="dt">\</span></span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--biosensia-root</span> BioSensIA-DC</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The script prepends the linked Uni-Core and DrugCLIP source directories to Python’s import path and imports the real wrapper implementations from that checkout. It then performs the following steps on record 0 of the default LMDB:</p>
+<ol type="1">
+<li><p><strong><code>LMDBDataset</code> opens and deserializes the record.</strong> It opens <code>lmdb/candidate_pockets.lmdb</code> as a read-only single-file LMDB (<code>subdir=False</code>), obtains the numeric keys, reads key <code>b"0"</code>, and unpickles its value. This verifies the physical database layout, dense-key convention, pickle compatibility, and three-field record shape at the point where DrugCLIP actually consumes them. The script fails immediately if the database is empty.</p></li>
+<li><p><strong><code>AffinityPocketDataset</code> adapts the raw record to DrugCLIP’s pocket interface.</strong> It reads <code>pocket_atoms</code>, stacks <code>pocket_coordinates</code> into an N-by-3 float32 array, copies the <code>pocket</code> identifier, and applies DrugCLIP’s <code>pocket_atom</code> token transformation. That transformation reduces a token according to the linked loader’s rules, so the test requires every exported token to remain unchanged. This detects subtle dictionary/interface problems before model inference.</p></li>
+<li><p><strong><code>RemoveHydrogenPocketDataset</code> applies DrugCLIP’s hydrogen policy.</strong> With the arguments used by the target-fishing path, it removes atoms whose token is <code>H</code> and applies the same mask to coordinates. The builder is supposed to export no hydrogens, so this wrapper must be an identity operation. If it removes anything, the test reports a contract failure rather than allowing the model to receive a pocket different from the checksummed export.</p></li>
+<li><p><strong><code>CroppingPocketDataset</code> applies DrugCLIP’s atom limit.</strong> In the linked implementation, an over-limit pocket is sampled without replacement with probabilities derived from distance to the pocket centroid. That operation is seeded, but it still selects a subset rather than preserving the exported representation. Because the builder has already cropped deterministically to <code>pocket.max_pocket_atoms</code>, this wrapper must also be an identity operation. The script compares both tokens and coordinates before and after the wrapper.</p></li>
+<li><p><strong><code>NormalizeDataset</code> centers the coordinates.</strong> It subtracts the pocket centroid from every coordinate and returns float32 coordinates. Translation is expected here: the centered coordinates should have mean approximately zero. Translation must not distort geometry, so the script verifies that every pairwise interatomic distance is unchanged within numerical tolerance.</p></li>
+<li><p><strong>Cross-artifact checks connect the loader result back to provenance.</strong> The script verifies that the complete pocket identifier survives every pre-normalization wrapper and that it joins to <code>sidecars/pockets.parquet</code>. It also confirms that the original coordinate array is float32. These checks ensure that a model result can still be traced to the authoritative sidecar row.</p></li>
+</ol>
+<p>If every assertion passes, the command prints a JSON result, atomically writes <code>reports/drugclip_loader_integration.json</code>, computes that report’s SHA-256, and updates <code>manifest.json</code> with the integration-test status and artifact checksum. Thus, unlike <code>pytest</code> or <code>validate</code>, this compatibility command intentionally modifies the completed run’s reports and manifest.</p>
+<p>This test stops after the loader wrappers that can remove, reorder, rename, or translate pocket data. It does <strong>not</strong> run dictionary tokenization, BOS/EOS insertion, padding, the neural-network checkpoint, or an embedding comparison. Checkpoint encoding additionally requires the active BioSensIA-DC model runtime and CUDA because the linked DrugCLIP retrieval encoder moves batches to CUDA. Before promoting a full library, run a target-fishing smoke query in that environment as a separate end-to-end model test. That encoder-test artifact must hash the checkpoint and bind it to the candidate LMDB logical checksum; the candidate-library manifest itself does not claim that an unused checkpoint affected construction.</p>
+</section>
+</section>
+<section id="troubleshooting" class="level1">
+<h1>Troubleshooting</h1>
+<p><strong>A contract file is missing.</strong> Verify the <code>BioSensIA-DC</code> link and run <code>check-drugclip-contract</code>. The loader fingerprint covers <code>lmdb_dataset.py</code>, <code>affinity_dataset.py</code>, <code>remove_hydrogen_dataset.py</code>, <code>cropping_dataset.py</code>, and <code>normalize_dataset.py</code>, not a nonexistent combined loader module.</p>
+<p><strong>A run directory already exists.</strong> Use <code>--resume</code> only when continuing the identical full identity. Use <code>--overwrite-run</code> to preserve the previous directory as a timestamped backup before rebuilding.</p>
+<p><strong>A build failed after sidecars were written.</strong> Do not use <code>--overwrite-run</code> and do not repeat the expensive build. Run <code>finalize --run-dir &lt;run-id&gt;</code>. It repairs the required default LMDB and final publication metadata while preserving the original identity.</p>
+<p><strong>Validation reports duplicate <code>affinity_reference_links</code>.</strong> Older builds could emit the same measurement/citation candidate once per RCSB source link or role. Current builds aggregate those observations. Running <code>finalize</code> applies the same deterministic repair to an existing sidecar and then revalidates it.</p>
+<p><strong>A pocket is absent from the default LMDB.</strong> Inspect <code>complexes.parquet</code>, <code>pockets.parquet</code>, and <code>processing_issues.parquet</code>. Tier C is usable sidecar geometry but is deliberately excluded from the default A+B profile; export <code>all-usable</code> explicitly if appropriate.</p>
+<p><strong>RCSB is unavailable.</strong> Re-run offline. Mapping and bibliography can remain unavailable without changing or rejecting geometry.</p>
+<p><strong>DrugCLIP crops or removes atoms.</strong> This indicates a contract violation: exported records must contain at most <code>max_pocket_atoms</code>, no <code>H</code>, dictionary-supported element tokens, and loader-stable token strings. Run <code>validate</code> and compare the recorded contract hashes with the active BioSensIA-DC checkout.</p>
+<p><strong><code>uv</code> cannot write its user cache in a restricted environment.</strong> Set a task-specific temporary cache for that invocation, for example <code>UV_CACHE_DIR=/tmp/candidate-pocket-uv-cache</code>; do not change project configuration or reuse system home variables.</p>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
