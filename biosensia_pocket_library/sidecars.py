@@ -79,10 +79,13 @@ def read_sidecar(directory: Path, name: str) -> list[dict]:
     return pa.Table.from_pylist(table.to_pylist(), schema=TABLES[name].schema).to_pylist()
 
 
-def validate_sidecars(directory: Path) -> list[str]:
+def validate_sidecars(directory: Path, *, progress: bool = False) -> list[str]:
     errors: list[str] = []
     loaded: dict[str, list[dict]] = {}
-    for name, spec in TABLES.items():
+    for name, spec in track(
+        TABLES.items(), description="Checking sidecar tables", total=len(TABLES),
+        enabled=progress, unit="table",
+    ):
         path = directory / f"{name}.parquet"
         if not path.is_file():
             errors.append(f"Missing sidecar {name}")
@@ -113,7 +116,10 @@ def validate_sidecars(directory: Path) -> list[str]:
         sorted_keys = [tuple(_sort_value(row.get(key)) for key in spec.sort_by) for row in rows]
         if sorted_keys != sorted(sorted_keys):
             errors.append(f"Noncanonical row order: {name}")
-    for name, spec in TABLES.items():
+    for name, spec in track(
+        TABLES.items(), description="Checking sidecar foreign keys", total=len(TABLES),
+        enabled=progress, unit="table",
+    ):
         for local, target_table, target in spec.foreign_keys:
             if name not in loaded or target_table not in loaded:
                 continue

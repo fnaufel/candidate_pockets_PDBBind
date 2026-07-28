@@ -7,6 +7,7 @@ import time
 
 import pyarrow.parquet as pq
 
+from biosensia_pocket_library.cli import main
 from biosensia_pocket_library.config import load_config
 from biosensia_pocket_library.drugclip_contract import verify_drugclip_contract
 from biosensia_pocket_library.finalization import finalize_run
@@ -134,6 +135,36 @@ def test_synthetic_end_to_end_build(tmp_path: Path):
     derived_complex = pq.read_table(derived / "sidecars/complexes.parquet").to_pylist()[0]
     assert derived_complex["structure_mapping_quality"] == "exact"
     assert derived_complex["geometry_origin"] == "pdbbind_reextracted"
+
+
+def test_validate_cli_reports_phases_and_progress(tmp_path: Path, capsys):
+    _fixture(tmp_path)
+    config = load_config(project_root=tmp_path, overrides={
+        "pipeline.offline": True, "pipeline.progress": True, "rcsb.download_mmcif": False,
+        "pocket.minimum_pocket_atoms_warning": 1,
+    })
+    run_dir = build_library(config, pdb_ids=["1abc"], progress=False)
+    capsys.readouterr()
+
+    assert main(["validate", "--run-dir", str(run_dir)]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Validation passed"
+    for expected in (
+        "Validating run:",
+        "Checking sidecar tables",
+        "Scanning sidecar rows",
+        "Indexing pocket atoms",
+        "Validating pocket geometry",
+        "Validating LMDB profile: default",
+        "Validation checks complete: 0 error(s)",
+    ):
+        assert expected in captured.err
+
+    assert main(["validate", "--run-dir", str(run_dir), "--no-progress"]) == 0
+    quiet = capsys.readouterr()
+    assert quiet.out.strip() == "Validation passed"
+    assert quiet.err == ""
 
 
 def test_worker_count_does_not_change_logical_outputs(tmp_path: Path):
