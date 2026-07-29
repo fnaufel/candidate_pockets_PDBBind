@@ -17,6 +17,7 @@ from biosensia_pocket_library.models import ProcessingIssue
 from biosensia_pocket_library.pipeline import _bounded_thread_map, _issue_row, build_library
 from biosensia_pocket_library.rcsb_workflow import enrich_library_from_cache, plan_rcsb_request
 from biosensia_pocket_library.reporting import generate_reports
+from biosensia_pocket_library.sidecars import ADDITIVE_V2_COLUMNS
 from biosensia_pocket_library.validation import validate_run
 
 
@@ -165,6 +166,25 @@ def test_validate_cli_reports_phases_and_progress(tmp_path: Path, capsys):
     quiet = capsys.readouterr()
     assert quiet.out.strip() == "Validation passed"
     assert quiet.err == ""
+
+
+def test_nonempty_legacy_v1_sidecars_remain_valid(tmp_path: Path):
+    _fixture(tmp_path)
+    config = load_config(project_root=tmp_path, overrides={
+        "pipeline.offline": True, "pipeline.progress": False, "rcsb.download_mmcif": False,
+        "pocket.minimum_pocket_atoms_warning": 1,
+    })
+    run_dir = build_library(config, pdb_ids=["1abc"], progress=False)
+
+    for name, additions in ADDITIVE_V2_COLUMNS.items():
+        path = run_dir / f"sidecars/{name}.parquet"
+        table = pq.read_table(path)
+        pq.write_table(
+            table.select([column for column in table.column_names if column not in additions]),
+            path,
+        )
+
+    assert validate_run(run_dir, config, progress=False) == []
 
 
 def test_worker_count_does_not_change_logical_outputs(tmp_path: Path):

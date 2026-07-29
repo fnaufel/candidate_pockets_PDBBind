@@ -82,6 +82,7 @@ def read_sidecar(directory: Path, name: str) -> list[dict]:
 def validate_sidecars(directory: Path, *, progress: bool = False) -> list[str]:
     errors: list[str] = []
     loaded: dict[str, list[dict]] = {}
+    available_columns: dict[str, set[str]] = {}
     for name, spec in track(
         TABLES.items(), description="Checking sidecar tables", total=len(TABLES),
         enabled=progress, unit="table",
@@ -91,13 +92,17 @@ def validate_sidecars(directory: Path, *, progress: bool = False) -> list[str]:
             errors.append(f"Missing sidecar {name}")
             continue
         actual = pq.read_schema(path)
+        available_columns[name] = set(actual.names)
         if (actual.remove_metadata() != spec.schema.remove_metadata()
                 and not _is_compatible_v1_schema(name, actual, spec.schema)):
             errors.append(f"Schema mismatch: {name}")
         rows = pq.read_table(path).to_pylist()
         loaded[name] = rows
         for column, allowed in (spec.allowed_enums or {}).items():
-            invalid_values = {row[column] for row in rows if row[column] is not None and row[column] not in allowed}
+            invalid_values = {
+                row.get(column) for row in rows
+                if row.get(column) is not None and row.get(column) not in allowed
+            }
             if invalid_values:
                 errors.append(f"Unknown enum values in {name}.{column}: {sorted(invalid_values)}")
         keys = [tuple(row.get(key) for key in spec.primary_key) for row in rows]
@@ -122,6 +127,9 @@ def validate_sidecars(directory: Path, *, progress: bool = False) -> list[str]:
     ):
         for local, target_table, target in spec.foreign_keys:
             if name not in loaded or target_table not in loaded:
+                continue
+            if (local not in available_columns[name]
+                    or target not in available_columns[target_table]):
                 continue
             valid = {row[target] for row in loaded[target_table]}
             invalid = [row[local] for row in loaded[name] if row.get(local) is not None and row[local] not in valid]
